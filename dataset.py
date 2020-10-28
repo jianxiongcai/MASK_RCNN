@@ -12,12 +12,15 @@ import matplotlib.patches as patches
 
 
 class BuildDataset(torch.utils.data.Dataset):
-    def __init__(self, path, augmentation=True):
+    def __init__(self, path, augmentation):
         """
 
-        :param path: the path to the dataset root: /workspace/data or XXX/data/SOLO
-        :param argumentation: if True, perform horizontal flipping argumentation
+        :param path:
+        :param augmentation: If Ture, horizontal flipping with 0.5 prob
         """
+        #############################################
+        # Initialize  Dataset
+        #############################################
         self.augmentation = augmentation
         # all files
         imgs_path, masks_path, labels_path, bboxes_path = path
@@ -35,13 +38,18 @@ class BuildDataset(torch.utils.data.Dataset):
         # Add a 0 to the head. offset[0] = 0
         self.mask_offset = np.concatenate([np.array([0]), self.mask_offset])
 
+    # In this function for given index we rescale the image and the corresponding  masks, boxes
+    # and we return them as output
     # output:
-    # transed_img
-    # label
-    # transed_mask
-    # transed_bbox
-    # Note: For data augmentation, number of items is 2 * N_images
+    # transed_img: (3, 800, 1088)
+    # label: (n_obj, )
+    # transed_mask: (n_box, 800, 1088)
+    # transed_bbox: (n_box, 4)
+    # index: if data augmentation is performed, the index will be a virtual unique identify (i.e. += len(dataset))
     def __getitem__(self, index):
+        ################################
+        # return transformed images,labels,masks,boxes,index
+        ################################
         # images
         img_np = self.images_h5['data'][index] / 255.0  # (3, 300, 400)
         img = torch.tensor(img_np, dtype=torch.float)
@@ -60,40 +68,32 @@ class BuildDataset(torch.utils.data.Dataset):
         # (n_obj, 300, 400)
         mask = torch.stack(mask_list)
 
-        # normalize bounding box
+        # prepare data and do augumentation (if set)
         bbox_np = self.bboxes_all[index]
         bbox = torch.tensor(bbox_np, dtype=torch.float)
-        transed_img, transed_mask, transed_bbox = self.pre_process_batch(img, mask, bbox)
-        if self.augmentation and (np.random.rand(1).item() > 0.5):
-            # perform horizontally flipping (data augmentation)
-            assert transed_img.ndim == 3
-            assert transed_mask.ndim == 3
-            transed_img = torch.flip(transed_img, dims=[2])
-            transed_mask = torch.flip(transed_mask, dims=[2])
-            # bbox transform
-            transed_bbox_new = transed_bbox.clone()
-            transed_bbox_new[:, 0] = 1 - transed_bbox[:, 2]
-            transed_bbox_new[:, 2] = 1 - transed_bbox[:, 0]
-            transed_bbox = transed_bbox_new
+        transed_img, transed_mask, transed_bbox, index = self.pre_process_batch(img, mask, bbox, index)
 
-            assert torch.all(transed_bbox[:, 0] < transed_bbox[:, 2])
-
-        # check flag
         assert transed_img.shape == (3, 800, 1088)
         assert transed_bbox.shape[0] == transed_mask.shape[0]
-        return transed_img, label, transed_mask, transed_bbox
+
+        # for synthesized image, index is assigned a new one (unique id)
+        index += self.images_h5['data'].shape[0]
+
+        return transed_img, label, transed_mask, transed_bbox, index
 
     def __len__(self):
         # return len(self.imgs_data)
         return self.images_h5['data'].shape[0]
 
-    # This function take care of the pre-process of img,mask,bbox
-    # in the input mini-batch
-    # input:
-    # img: 3*300*400
-    # mask: 3*300*400
-    # bbox: n_box*4
-    def pre_process_batch(self, img, mask, bbox):
+    # This function preprocess the given image, mask, box by rescaling them appropriately
+    # output:
+    #        img: (3,800,1088)
+    #        mask: (n_box,800,1088)
+    #        box: (n_box,4)
+    def pre_process_batch(self, img, mask, bbox, index):
+        #######################################
+        # apply the correct transformation to the images,masks,boxes
+        ######################################
         assert isinstance(img, torch.Tensor)
         assert isinstance(mask, torch.Tensor)
         assert isinstance(bbox, torch.Tensor)
@@ -107,24 +107,44 @@ class BuildDataset(torch.utils.data.Dataset):
         mask = self.torch_interpolate(mask, 800, 1066)  # (N_obj, 800, 1066)
         mask = F.pad(mask, [11, 11])  # (N_obj, 800, 1088)
 
-        # normalize bounding box
-        # (x1, y1, x2, y2)
-        bbox_normed = torch.zeros_like(bbox)
-        for i in range(bbox.shape[0]):
-            bbox_normed[i, 0] = bbox[i, 0] / 400.0
-            bbox_normed[i, 1] = bbox[i, 1] / 300.0
-            bbox_normed[i, 2] = bbox[i, 2] / 400.0
-            bbox_normed[i, 3] = bbox[i, 3] / 300.0
-        assert torch.max(bbox_normed) <= 1.0
-        assert torch.min(bbox_normed) >= 0.0
-        bbox = bbox_normed
+        # transfer bounding box
+        # 1) from (x1, y1, x2, y2) => (c_x, c_y, w, h)
+        centralized = torch.zeros_like(bbox)
+        centralized[:, 0] = (bbox[:, 0] + bbox[:, 2]) / 2.0
+        centralized[:, 1] = (bbox[:, 1] + bbox[:, 3]) / 2.0
+        centralized[:, 2] = bbox[:, 2] - bbox[:, 0]
+        centralized[:, 3] = bbox[:, 3] - bbox[:, 1]
 
-        # check flag
-        assert img.shape == (3, 800, 1088)
-        # todo (jianxiong): following commmented was provided in code release
+        # 2) to the resized image
+        trans_bbox = torch.zeros_like(centralized)
+        trans_bbox[:, 0] = centralized[:, 0] / 400.0 * 1066.0 + 11  # c_x
+        trans_bbox[:, 1] = centralized[:, 1] / 300.0 * 800.0  # c_y
+        trans_bbox[:, 2] = centralized[:, 2] / 400.0 * 1066.0  # w
+        trans_bbox[:, 3] = centralized[:, 3] / 300.0 * 800.0  # h
+
+        # do augmentation (if set)
+        if self.augmentation and (np.random.rand(1).item() > 0.5):
+            # perform horizontally flipping (data augmentation)
+            assert img.dim() == 3
+            assert mask.dim() == 3
+            ret_img = torch.flip(img, dims=[2])
+            ret_mask = torch.flip(mask, dims=[2])
+            # bbox transform for augmentation (flip horizontal axis)
+            ret_bbox = trans_bbox.clone()
+            ret_bbox[:, 0] = 1088.0 - ret_bbox[:, 0]
+            assert torch.all(ret_bbox[:, 0] < ret_bbox[:, 1])
+            # for aug, create a unique index for unique identification
+            index = index + self.images_h5['data'].shape[0]
+        else:
+            ret_img = img
+            ret_mask = mask
+            ret_bbox = trans_bbox
+
+        assert ret_img.squeeze(0).shape == (3, 800, 1088)
         # assert bbox.shape[0] == mask.squeeze(0).shape[0]
-        assert bbox.shape[0] == mask.shape[0]
-        return img, mask, bbox
+        assert ret_bbox.shape[0] == ret_mask.shape[0]
+
+        return ret_img, ret_mask, ret_bbox, index
 
     @staticmethod
     def torch_interpolate(x, H, W):
@@ -142,22 +162,6 @@ class BuildDataset(torch.utils.data.Dataset):
         tensor_out = tensor_out.squeeze(0)
         tensor_out = tensor_out.squeeze(0)
         return tensor_out
-
-    @staticmethod
-    def unnormalize_bbox(bbox):
-        """
-        Unnormalize one bbox annotation. from 0-1 => 0 - 1088
-        x_res = x * 1066 + 11
-        y_res = x * 800
-        :param bbox: the normalized bounding box (4,)
-        :return: the absolute bounding box location (4,)
-        """
-        bbox_res = torch.tensor(bbox, dtype=torch.float)
-        bbox_res[0] = bbox[0] * 1066 + 11
-        bbox_res[1] = bbox[1] * 800
-        bbox_res[2] = bbox[2] * 1066 + 11
-        bbox_res[3] = bbox[3] * 800
-        return bbox_res
 
     @staticmethod
     def unnormalize_img(img):
@@ -182,25 +186,38 @@ class BuildDataLoader(torch.utils.data.DataLoader):
         self.num_workers = num_workers
 
     # output:
-
-    # img: (bz, 3, 800, 1088)
-    # label_list: list, len:bz, each (n_obj,)
-    # transed_mask_list: list, len:bz, each (n_obj, 800,1088)
-    # transed_bbox_list: list, len:bz, each (n_obj, 4)
+    #  dict{images: (bz, 3, 800, 1088)
+    #       labels: list:len(bz)
+    #       masks: list:len(bz){(n_obj, 800,1088)}
+    #       bbox: list:len(bz){(n_obj, 4)}
+    #       index: list:len(bz)
     def collect_fn(self, batch):
-        transed_img_list = []
+        out_batch = {}
+        tmp_image_list = []
         label_list = []
-        transed_mask_list = []
-        transed_bbox_list = []
-        for transed_img, label, transed_mask, transed_bbox in batch:
-            transed_img_list.append(transed_img)
+        mask_list = []
+        bbox_list = []
+        indice = []
+        for transed_img, label, transed_mask, transed_bbox, index in batch:
+            tmp_image_list.append(transed_img)
             label_list.append(label)
-            transed_mask_list.append(transed_mask)
-            transed_bbox_list.append(transed_bbox)
-        return torch.stack(transed_img_list, dim=0), label_list, transed_mask_list, transed_bbox_list
+            mask_list.append(transed_mask)
+            bbox_list.append(transed_bbox)
+            indice.append(index)
+
+        out_batch['images'] =torch.stack(tmp_image_list, dim=0)
+        out_batch['labels'] = label_list
+        out_batch['masks'] = mask_list
+        out_batch['bbox'] = bbox_list
+        out_batch['index'] = indice
+
+        return out_batch
 
     def loader(self):
-        return DataLoader(self.dataset, batch_size=self.batch_size, shuffle=self.shuffle, num_workers=self.num_workers,
+        return DataLoader(self.dataset,
+                          batch_size=self.batch_size,
+                          shuffle=self.shuffle,
+                          num_workers=self.num_workers,
                           collate_fn=self.collect_fn)
 
 
