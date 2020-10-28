@@ -44,7 +44,7 @@ class BuildDataset(torch.utils.data.Dataset):
     # transed_img: (3, 800, 1088)
     # label: (n_obj, )
     # transed_mask: (n_box, 800, 1088)
-    # transed_bbox: (n_box, 4)
+    # transed_bbox: (n_box, 4), unnormalized bounding box coordinates (resized)
     # index: if data augmentation is performed, the index will be a virtual unique identify (i.e. += len(dataset))
     def __getitem__(self, index):
         ################################
