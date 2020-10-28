@@ -15,13 +15,41 @@ class RPNHead(torch.nn.Module):
         super(RPNHead,self).__init__()
 
         self.device=device
-        # TODO Define Backbone
+        # Define Backbone
+        self.backbone = nn.Sequential(nn.Conv2d(3, 16, 5, padding=2),           # Block 1
+                                      nn.BatchNorm2d(16),
+                                      nn.ReLU(inplace=False),
+                                      nn.MaxPool2d(2, stride=2, padding=0),
+                                      nn.Conv2d(16, 32, 5, padding=2),           # Block 2
+                                      nn.BatchNorm2d(32),
+                                      nn.ReLU(inplace=False),
+                                      nn.MaxPool2d(2, stride=2, padding=0),
+                                      nn.Conv2d(32, 64, 5, padding=2),           # Block 3
+                                      nn.BatchNorm2d(64),
+                                      nn.ReLU(inplace=False),
+                                      nn.MaxPool2d(2, stride=2, padding=0),
+                                      nn.Conv2d(64, 128, 5, padding=2),           # Block 4
+                                      nn.BatchNorm2d(128),
+                                      nn.ReLU(inplace=False),
+                                      nn.MaxPool2d(2, stride=2, padding=0),
+                                      nn.Conv2d(128, 256, 5, padding=2),           # Block 5
+                                      nn.BatchNorm2d(256),
+                                      nn.ReLU(inplace=False))
 
-        # TODO  Define Intermediate Layer
+        # Define Intermediate Layer
+        self.interm_layer = nn.Sequential(nn.Conv2d(256, 256, 3, padding=1),
+                                          nn.BatchNorm2d(256),
+                                          nn.ReLU(inplace=False))
 
-        # TODO  Define Proposal Classifier Head
+        # Define Proposal Classifier Head
+        self.cls_head = nn.Sequential(nn.Conv2d(256, 1, 1, padding=0),
+                                      nn.Sigmoid())
 
-        # TODO Define Proposal Regressor Head
+        # Define Proposal Regressor Head
+        # todo (jianxiong): the handout did not specify the Sigmoid, but it makes sense to add that.
+        # todo: note: double-check the output and target labels is normalized to [0, 1], (sigmoid has the output of [0, 1])
+        self.reg_head = nn.Sequential(nn.Conv2d(256, 4, 1, padding=0),
+                                      nn.Sigmoid())
 
         #  find anchors
         self.anchors_param=anchors_param
@@ -40,16 +68,19 @@ class RPNHead(torch.nn.Module):
     #       bbox_regs: (bz,4, grid_size[0],grid_size[1])}
     def forward(self, X):
 
-        #TODO forward through the Backbone
+        # forward through the Backbone
+        X = self.backbone(X)
 
+        # forward through the Intermediate layer
+        X = self.interm_layer(X)
 
-        #TODO forward through the Intermediate layer
+        # forward through the Classifier Head
+        logits = self.cls_head(X)
 
+        # forward through the Regressor Head
+        reg_output =  self.reg_head(X)
 
-        #TODO forward through the Classifier Head
-
-
-        #TODO forward through the Regressor Head
+        # todo: decode reg_output (w.r.t. anchor cell grid) to bbox_regs
 
         assert logits.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert bbox_regs.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
@@ -64,13 +95,14 @@ class RPNHead(torch.nn.Module):
     #       X: (bz,3,image_size[0],image_size[1])}
     # Ouput:
     #       X: (bz,256,grid_size[0],grid_size[1])
-    def forward_backbone(self,X):
-        #####################################
-        # TODO forward through the backbone
-        #####################################
-        assert X.shape[1:4]==(256,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
-
-        return X
+    # todo (jianxiong): does not seen useful...
+    # def forward_backbone(self,X):
+    #     #####################################
+    #     # TODO forward through the backbone
+    #     #####################################
+    #     assert X.shape[1:4]==(256,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
+    #
+    #     return X
 
 
 
