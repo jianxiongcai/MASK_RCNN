@@ -143,18 +143,44 @@ class RPNHead(torch.nn.Module):
     #      indexes:      list:len(bz)
     #      image_shape:  tuple:len(2)
     # Output:
-    #      ground_clas: (bz,1,grid_size[0],grid_size[1])
+    #      ground_class: (bz,1,grid_size[0],grid_size[1])
     #      ground_coord: (bz,4,grid_size[0],grid_size[1])
     def create_batch_truth(self,bboxes_list,indexes,image_shape):
         #####################################
         # TODO create ground truth for a batch of images
-        #####################################
-        assert ground_clas.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
+        #####################################     
+        bz=len(bboxes_list)
+        grid_size=(self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
+        ground_class=torch.zeros(bz,1,grid_size[0],grid_size[1])
+        for idx in range(bz):
+            ground_class[idx,:,:,:],ground_coord[idx,:,:,:]=create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
+        
+        assert ground_class.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert ground_coord.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
 
-        return ground_clas, ground_coord
+        return ground_class, ground_coord
 
 
+    # This function calculate iou matrix of two sets of bboxes with expression of [c_x,c_y,w,h]
+    # bbox:(num_box,4)
+    def IOU(bbox_1 ,bbox_2):
+          x_1up,y_1up,x_1l,y_1l=bbox_1[:,0]-0.5*bbox_1[:,2],bbox_1[:,1]-0.5*bbox_1[:,3],bbox_1[:,0]+0.5*bbox_1[:,2],bbox_1[:,1]+0.5*bbox_1[:,3]
+          x_2up,y_2up,x_2l,y_2l=bbox_2[:,0]-0.5*bbox_2[:,2],bbox_2[:,1]-0.5*bbox_2[:,3],bbox_2[:,0]+0.5*bbox_2[:,2],bbox_2[:,1]+0.5*bbox_2[:,3]
+          
+          x_up=torch.max(x_1up,x_2up)
+          y_up=torch.max(y_1up,y_2up)
+        
+          x_l=torch.min(x_1l,x_2l)
+          y_l=torch.min(y_1l,y_2l)
+        
+          inter_area = (x_l-x_up).clamp(min=0) * (y_l-y_up).clamp(min=0)
+        
+          area_box1 = (x_1l-x_1up).clamp(min=0) * (y_1l-y_1up).clamp(min=0)
+          area_box2 = (x_2l-x_2up).clamp(min=0) * (y_2l-y_2up).clamp(min=0)
+          union_area=area_box1+area_box2-inter_area
+          iou=(inter_area+ 1e-3)/(union_area+1e-3)  
+        
+          return iou
     # This function creates the ground truth for one image
     # It also caches the ground truth for the image using its index
     # Input:
@@ -174,17 +200,70 @@ class RPNHead(torch.nn.Module):
         #####################################################
         # TODO create ground truth for a single image
         #####################################################
-
-        self.ground_dict[key] = (ground_clas, ground_coord)
-
+        labels=-torch.ones(grid_size[0],grid_size[1]).long()
+        w=anchors[0,0,2]
+        h=anchors[0,0,3]
+        anchor_inbound_list=[]
+        for i in range(anchors.shape[0]):
+          for j in range(anchors.shape[1]):
+            if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_size[0]-w*0.5 or anchors[i,j,1]>image_size[1]-h*0.5:
+              continue
+            anchor_inbound_list.append(anchors[i,j])
+        anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4)
+        num_anchor_inbound=anchor_inbound.shape[0]
+        
+        iou_inbound_anchor_list=[]
+        positive_inbound_anchor_list=[]
+        negative_inbound_anchor_list=[]
+        for obj_idx in range(bboxes.shape[0]):
+          box_cx=bboxes[obj_idx][0].numpy()
+          box_cy=bboxes[obj_idx][1].numpy()
+          box_w=bboxes[obj_idx][2].numpy()
+          box_h=bboxes[obj_idx][3].numpy()
+          bbox_single=bboxes[obj_idx].view(1,-1)
+          bbox_n=bbox_single.repeat(num_anchor_inbound,1)
+          iou=IOU(bbox_n,anchor_inbound)
+          iou_inbound_anchor_list.append(iou)
+          iou_low_mask=(iou<0.3)
+          negative_inbound_anchor_list.append(iou_low_mask)
+          iou_high_mask=(iou>0.7)
+          max_iou=torch.max(iou)
+          max_iou_idx=torch.argmax(iou)
+          iou_high_mask[max_iou_idx]=True
+          positive_inbound_anchor_list.append(iou_high_mask)
+        
+        iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
+        negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))])
+        negative_idx=torch.squeeze(anchor_inbound[negative_mask.nonzero(),:2].float()/self.anchors_param['stride']-0.5).long()
+        positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))])
+        positive_idx=torch.squeeze(anchor_inbound[positive_mask.nonzero(),:2].float()/self.anchors_param['stride']-0.5).long()
+        highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)
+        labels[positive_idx[:,0],positive_idx[:,1]]=1
+        labels[negative_idx[:,0],negative_idx[:,1]]=0
+        ground_coord_orig=anchors.permute((2,0,1))
+        ground_coord=ground_coord_orig
+        
+        highest_bbox_idx=highest_iou_bbox_idx[positive_mask]
+        bbox_positive=bboxes[highest_bbox_idx]
+        bbox_x=bbox_positive[:,0]
+        bbox_y=bbox_positive[:,1]
+        bbox_w=bbox_positive[:,2]
+        bbox_h=bbox_positive[:,3]
+        x_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][0,:]
+        y_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][1,:]
+        w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:]
+        h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:]
+        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][0,:]=(bbox_x-x_a)/(w_a+1e-9)
+        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
+        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
+        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
+        ground_class=torch.unsqueeze(labels,0)
+        
+        self.ground_dict[key] = (ground_class, ground_coord)
         assert ground_clas.shape==(1,grid_size[0],grid_size[1])
         assert ground_coord.shape==(4,grid_size[0],grid_size[1])
 
-        return ground_clas, ground_coord
-
-
-
-
+        return ground_class, ground_coord
 
     # Compute the loss of the classifier
     # Input:
