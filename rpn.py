@@ -153,7 +153,7 @@ class RPNHead(torch.nn.Module):
         grid_size=(self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         ground_class=torch.zeros(bz,1,grid_size[0],grid_size[1])
         for idx in range(bz):
-            ground_class[idx:,:,:],ground_coord[idx,:,:,:]=create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
+            ground_class[idx,:,:,:],ground_coord[idx,:,:,:]=create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
         
         assert ground_class.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert ground_coord.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
