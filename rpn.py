@@ -272,10 +272,10 @@ class RPNHead(torch.nn.Module):
         assert p_out.dim() == 1
         assert n_out.dim() == 1
         # compute classifier's loss
-        cls_loss = torch.nn.BCELoss(reduction='sum')
+        cls_loss = torch.nn.BCELoss(reduction='mean')
 
         N_pos = p_out.shape[0]
-        N_neg = p_out.shape[0]
+        N_neg = n_out.shape[0]
         sum_count = N_pos + N_neg
 
         pred = torch.cat([p_out, n_out])
@@ -297,7 +297,7 @@ class RPNHead(torch.nn.Module):
         assert pos_target_coord.shape == pos_out_r.shape
         assert pos_out_r.shape[1] == 4
 
-        reg_loss = torch.nn.SmoothL1Loss(reduction = 'sum')
+        reg_loss = torch.nn.SmoothL1Loss(reduction = 'mean')
         loss = reg_loss(pos_out_r, pos_target_coord)
         sum_count = pos_out_r.shape[0]
 
@@ -355,14 +355,11 @@ class RPNHead(torch.nn.Module):
         pos_target_coord = targ_reg[pos_cord_keep[:, 0], :, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
 
         # compute loss
-        loss_cls, cls_count = self.loss_class(p_out, n_out)
-        loss_reg, reg_count = self.loss_reg(pos_target_coord, pos_out_r)
-
-        # Normalize loss
-        loss_c = loss_cls / cls_count
-        loss_r = l * loss_reg / reg_count
-
-        loss = loss_c + loss_r
+        loss_c, cls_count = self.loss_class(p_out, n_out)
+        loss_r, reg_count = self.loss_reg(pos_target_coord, pos_out_r)
+        # todo: (jianxiong): normalize with count number?
+        # Note: provided testcase did not normalize
+        loss = loss_c + l * loss_r
 
         return loss, loss_c, loss_r
 
