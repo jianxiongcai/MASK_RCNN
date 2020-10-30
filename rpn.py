@@ -66,6 +66,7 @@ class RPNHead(torch.nn.Module):
     # Ouput:
     #       logits: (bz,1,grid_size[0],grid_size[1])}
     #       bbox_regs: (bz,4, grid_size[0],grid_size[1])}
+    # Note: bbox_regs is not raw bounding box coordinates
     def forward(self, X):
 
         # forward through the Backbone
@@ -78,9 +79,7 @@ class RPNHead(torch.nn.Module):
         logits = self.cls_head(X)
 
         # forward through the Regressor Head
-        reg_output =  self.reg_head(X)
-
-        # todo: decode reg_output (w.r.t. anchor cell grid) to bbox_regs
+        bbox_regs =  self.reg_head(X)
 
         assert logits.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert bbox_regs.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
@@ -270,9 +269,18 @@ class RPNHead(torch.nn.Module):
     #      p_out:     (positives_on_mini_batch)  (output of the classifier for sampled anchors with positive gt labels)
     #      n_out:     (negatives_on_mini_batch) (output of the classifier for sampled anchors with negative gt labels
     def loss_class(self,p_out,n_out):
+        assert p_out.dim() == 1
+        assert n_out.dim() == 1
+        # compute classifier's loss
+        cls_loss = torch.nn.BCELoss(reduction='sum')
 
-        #torch.nn.BCELoss()
-        # TODO compute classifier's loss
+        N_pos = p_out.shape[0]
+        N_neg = p_out.shape[0]
+        sum_count = N_pos + N_neg
+
+        pred = torch.cat([p_out, n_out])
+        gt = torch.cat([torch.ones(N_pos), torch.zeros(N_neg)])
+        loss = cls_loss(pred, gt)
 
         return loss,sum_count
 
@@ -283,26 +291,80 @@ class RPNHead(torch.nn.Module):
     #       pos_target_coord: (positive_on_mini_batch,4) (ground truth of the regressor for sampled anchors with positive gt labels)
     #       pos_out_r: (positive_on_mini_batch,4)        (output of the regressor for sampled anchors with positive gt labels)
     def loss_reg(self,pos_target_coord,pos_out_r):
-            #torch.nn.SmoothL1Loss()
-            # TODO compute regressor's loss
+        # compute regressor's loss
+        assert pos_out_r.dim() == 2
+        assert pos_target_coord.dim() == 2
+        assert pos_target_coord.shape == pos_out_r.shape
+        assert pos_out_r.shape[1] == 4
 
-            return loss, sum_count
+        reg_loss = torch.nn.SmoothL1Loss(reduction = 'sum')
+        loss = reg_loss(pos_out_r, pos_target_coord)
+        sum_count = pos_out_r.shape[0]
+
+        return loss, sum_count
 
 
 
     # Compute the total loss
     # Input:
-    #       clas_out: (bz,1,grid_size[0],grid_size[1])
-    #       regr_out: (bz,4,grid_size[0],grid_size[1])
-    #       targ_clas:(bz,1,grid_size[0],grid_size[1])
-    #       targ_regr:(bz,4,grid_size[0],grid_size[1])
+    #       cls_out: (bz,1,grid_size[0],grid_size[1])
+    #       reg_out: (bz,4,grid_size[0],grid_size[1])
+    #       targ_cls:(bz,1,grid_size[0],grid_size[1])
+    #       targ_reg:(bz,4,grid_size[0],grid_size[1])
     #       l: lambda constant to weight between the two losses
     #       effective_batch: the number of anchors in the effective batch (M in the handout)
-    def compute_loss(self,clas_out,regr_out,targ_clas,targ_regr, l=1, effective_batch=50):
-            #############################
-            # TODO compute the total loss
-            #############################
-            return loss, loss_c, loss_r
+    def compute_loss(self,cls_out,reg_out,targ_cls,targ_reg, l=1, effective_batch=50):
+        #############################
+        # compute the total loss
+        #############################
+        assert cls_out.shape[1] == 1
+        assert reg_out.shape[1] == 4
+        assert targ_cls.shape[1] == 1
+        assert targ_reg.shape[1] == 4
+
+        N_pos = int(effective_batch / 2)
+        N_neg = effective_batch - N_pos
+
+        # sampling
+        targ_cls_3 = targ_cls.squeeze(dim=1)                # 3-dimensional target cls tensor
+        pos_cord_all = torch.nonzero(targ_cls_3 == 1)       # (N_pos_all, 3): indice on dimension 0, 2, 3
+        neg_cord_all = torch.nonzero(targ_cls_3 == 0)
+
+        # sampling positive
+        if pos_cord_all.shape[0] > N_pos:                   # sample positive
+            # sampling indice: choose N_pos samples from all positive (pos_cord_all.shape[0])
+            pos_indice_keep = np.random.choice(pos_cord_all.shape[0], N_pos)
+            pos_cord_keep = pos_cord_all[pos_indice_keep, :]        # (N_pos, 3)
+        else:               # skip positive sampling, update N_pos / N_neg
+            pos_cord_keep = pos_cord_all
+            N_pos = pos_cord_keep.shape[0]
+            N_neg = effective_batch - N_pos
+
+        # sampling negative
+        if neg_cord_all.shape[0] < N_neg:
+            print("[WARN] not enough sample for negative sampling. Required: {}, Available: {}".format(
+                N_neg, neg_cord_all.shape[0]))
+        # sampling indice: choose N_pos samples from all positive (pos_cord_all.shape[0])
+        neg_indice_keep = np.random.choice(neg_cord_all.shape[0], N_neg)
+        neg_cord_keep = neg_cord_all[neg_indice_keep, :]            # (N_neg, 3)
+
+        # sampling (fetching values)
+        p_out = cls_out[pos_cord_keep[:, 0], 0, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
+        n_out = cls_out[neg_cord_keep[:, 0], 0, neg_cord_keep[:, 1], neg_cord_keep[:, 2]]
+        pos_out_r = reg_out[pos_cord_keep[:, 0], :, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
+        pos_target_coord = targ_reg[pos_cord_keep[:, 0], :, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
+
+        # compute loss
+        loss_cls, cls_count = self.loss_class(p_out, n_out)
+        loss_reg, reg_count = self.loss_reg(pos_target_coord, pos_out_r)
+
+        # Normalize loss
+        loss_c = loss_cls / cls_count
+        loss_r = l * loss_reg / reg_count
+
+        loss = loss_c + loss_r
+
+        return loss, loss_c, loss_r
 
 
 
