@@ -4,8 +4,13 @@ from torchvision import transforms
 from torch import nn, Tensor
 from dataset import *
 from utils import *
-
+import os.path
+import shutil
 import torchvision
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+import gc
+gc.enable()
 
 
 class RPNHead(torch.nn.Module):
@@ -152,8 +157,9 @@ class RPNHead(torch.nn.Module):
         bz=len(bboxes_list)
         grid_size=(self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         ground_class=torch.zeros(bz,1,grid_size[0],grid_size[1])
+        ground_coord=torch.zeros(bz,4,grid_size[0],grid_size[1])
         for idx in range(bz):
-            ground_class[idx,:,:,:],ground_coord[idx,:,:,:]=create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
+            ground_class[idx,:,:,:],ground_coord[idx,:,:,:]=self.create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
         
         assert ground_class.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert ground_coord.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
@@ -163,7 +169,7 @@ class RPNHead(torch.nn.Module):
 
     # This function calculate iou matrix of two sets of bboxes with expression of [c_x,c_y,w,h]
     # bbox:(num_box,4)
-    def IOU(bbox_1 ,bbox_2):
+    def IOU(self,bbox_1 ,bbox_2):
           x_1up,y_1up,x_1l,y_1l=bbox_1[:,0]-0.5*bbox_1[:,2],bbox_1[:,1]-0.5*bbox_1[:,3],bbox_1[:,0]+0.5*bbox_1[:,2],bbox_1[:,1]+0.5*bbox_1[:,3]
           x_2up,y_2up,x_2l,y_2l=bbox_2[:,0]-0.5*bbox_2[:,2],bbox_2[:,1]-0.5*bbox_2[:,3],bbox_2[:,0]+0.5*bbox_2[:,2],bbox_2[:,1]+0.5*bbox_2[:,3]
           
@@ -222,7 +228,7 @@ class RPNHead(torch.nn.Module):
           box_h=bboxes[obj_idx][3].numpy()
           bbox_single=bboxes[obj_idx].view(1,-1)
           bbox_n=bbox_single.repeat(num_anchor_inbound,1)
-          iou=IOU(bbox_n,anchor_inbound)
+          iou=self.IOU(bbox_n,anchor_inbound)
           iou_inbound_anchor_list.append(iou)
           iou_low_mask=(iou<0.3)
           negative_inbound_anchor_list.append(iou_low_mask)
@@ -260,7 +266,7 @@ class RPNHead(torch.nn.Module):
         ground_class=torch.unsqueeze(labels,0)
         
         self.ground_dict[key] = (ground_class, ground_coord)
-        assert ground_clas.shape==(1,grid_size[0],grid_size[1])
+        assert ground_class.shape==(1,grid_size[0],grid_size[1])
         assert ground_coord.shape==(4,grid_size[0],grid_size[1])
 
         return ground_class, ground_coord
@@ -286,7 +292,8 @@ class RPNHead(torch.nn.Module):
             #torch.nn.SmoothL1Loss()
             # TODO compute regressor's loss
 
-            return loss, sum_count
+#            return loss, sum_count
+            pass
 
 
 
@@ -302,7 +309,8 @@ class RPNHead(torch.nn.Module):
             #############################
             # TODO compute the total loss
             #############################
-            return loss, loss_c, loss_r
+#            return loss, loss_c, loss_r
+            pass
 
 
 
@@ -320,8 +328,8 @@ class RPNHead(torch.nn.Module):
        ####################################
        # TODO postprocess a batch of images
        #####################################
-        return nms_clas_list, nms_prebox_list
-
+#        return nms_clas_list, nms_prebox_list
+       pass
 
 
     # Post process the output for one image
@@ -336,7 +344,8 @@ class RPNHead(torch.nn.Module):
             # TODO postprocess a single image
             #####################################
 
-            return nms_clas, nms_prebox
+#            return nms_clas, nms_prebox
+            pass
 
 
 
@@ -350,6 +359,81 @@ class RPNHead(torch.nn.Module):
         ##################################
         # TODO perform NSM
         ##################################
-        return nms_clas,nms_prebox
+#        return nms_clas,nms_prebox
+        pass
     
 if __name__=="__main__":
+    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
+    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+
+    # set up output dir (for plotGT)
+    try:
+        shutil.rmtree("plotgt_result")
+    except FileNotFoundError:
+        pass
+    os.makedirs("plotgt_result", exist_ok=True)
+
+    paths = [imgs_path, masks_path, labels_path, bboxes_path]
+    # load the data into data.Dataset
+    dataset = BuildDataset(paths)
+
+    ## Visualize debugging
+    # --------------------------------------------
+    # build the dataloader
+    # set 20% of the dataset as the training data
+    full_size = len(dataset)
+    train_size = int(full_size * 0.8)
+    test_size = full_size - train_size
+    # random split the dataset into training and testset
+    # set seed
+    torch.random.manual_seed(1)
+    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    # push the randomized training data into the dataloader
+
+    # train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
+    # test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
+    batch_size = 2
+    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    train_loader = train_build_loader.loader()
+    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_loader = test_build_loader.loader()
+
+
+    resnet50_fpn = Resnet50Backbone()
+    solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
+    # loop the image
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    # to gpu device
+    resnet50_fpn = resnet50_fpn.to(device)
+    solo_head = solo_head.to(device)
+
+    for iter, data in enumerate(train_loader, 0):
+        img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
+        # fpn is a dict
+        img = img.to(device)
+        backout = resnet50_fpn(img)
+        fpn_feat_list = list(backout.values())
+        # make the target
+
+
+        ## demo   
+        #cate_pred_list[0]:bz, 3, num_grid,num_grid    len(cate_pred_list)=5               value [0,1]
+        #ins_pred_list[0]:bz, num_grid^2, 2*H_feat, 2*W_feat   len(cate_pred_list)=5       value [0,1]
+        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
+        
+        # len(ins_gts_list[0])=5, ins_gts_list[0][0]:num_grid^2, 2*H_feat, 2*W_feat   len(ins_gts_list)=bz   value:0 or 1
+        # len(ins_ind_gts_list[0])=5, ins_gts_list[0][0]:num_grid^2   len(ins_ind_gts_list)=bz   value:0 or 1
+        # len(cate_gts_list[0])=5, cate_gts_list[0][0]:num_grid,num_grid   len(ins_gts_list)=bz   value:0,1,2
+        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
+                                                                        bbox_list,
+                                                                        label_list,
+                                                                        mask_list)
+#        mask_color_list = ["jet", "ocean", "Spectral"]
+#        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
+#        # break
+#
+#        if (iter > 40):
+#            break
