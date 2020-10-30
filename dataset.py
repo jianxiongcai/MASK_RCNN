@@ -41,7 +41,7 @@ class BuildDataset(torch.utils.data.Dataset):
     # In this function for given index we rescale the image and the corresponding  masks, boxes
     # and we return them as output
     # output:
-    # transed_img: (3, 800, 1088)
+    # transed_img: (3, 800, 1088)  (3,h,w)
     # label: (n_obj, )
     # transed_mask: (n_box, 800, 1088)
     # transed_bbox: (n_box, 4), unnormalized bounding box coordinates (resized)
@@ -223,10 +223,10 @@ class BuildDataLoader(torch.utils.data.DataLoader):
 
 if __name__ == '__main__':
     # file path and make a list
-    imgs_path = 'data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = 'data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = 'data/hw3_mycocodata_labels_comp_zlib.npy'
-    bboxes_path = 'data/hw3_mycocodata_bboxes_comp_zlib.npy'
+    imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = '../data/hw3_mycocodata_labels_comp_zlib.npy'
+    bboxes_path = '../data/hw3_mycocodata_bboxes_comp_zlib.npy'
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
     dataset = BuildDataset(paths, augmentation=False)
@@ -285,6 +285,8 @@ if __name__ == '__main__':
             ax.add_patch(rect)
 
         plt.show()
-
-        if (i > 20):
-            break
+        saving_file = "anchor_bbox.png"
+        plt.savefig(saving_file)
+        break
+#        if (i > 20):
+#            break

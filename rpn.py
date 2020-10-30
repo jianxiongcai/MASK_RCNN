@@ -125,10 +125,10 @@ class RPNHead(torch.nn.Module):
         x=torch.arange(grid_sizes[0])
         y=torch.arange(grid_sizes[1])
         xx,yy=torch.meshgrid(x,y)
-        anchors[xx,yy,0]=((xx+0.5)*stride).long()
-        anchors[xx,yy,1]=((yy+0.5)*stride).long()
-        anchors[xx,yy,2]=w
-        anchors[xx,yy,3]=h
+        anchors[xx,yy,0]=((yy+0.5)*stride).long()
+        anchors[xx,yy,1]=((xx+0.5)*stride).long()
+        anchors[xx,yy,2]=h
+        anchors[xx,yy,3]=w
            
         assert anchors.shape == (grid_sizes[0] , grid_sizes[1],4)
 
@@ -198,78 +198,86 @@ class RPNHead(torch.nn.Module):
     #       ground_clas:  (1,grid_size[0],grid_size[1])
     #       ground_coord: (4,grid_size[0],grid_size[1])
     def create_ground_truth(self, bboxes, index, grid_size, anchors, image_size):
-        key = str(index)
-        if key in self.ground_dict:
+      key = str(index)
+      if key in self.ground_dict:
             groundt, ground_coord = self.ground_dict[key]
             return groundt, ground_coord
 
         #####################################################
         # TODO create ground truth for a single image
         #####################################################
-        labels=-torch.ones(grid_size[0],grid_size[1]).long()
-        w=anchors[0,0,2]
-        h=anchors[0,0,3]
-        anchor_inbound_list=[]
-        for i in range(anchors.shape[0]):
-          for j in range(anchors.shape[1]):
-            if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_size[0]-w*0.5 or anchors[i,j,1]>image_size[1]-h*0.5:
-              continue
-            anchor_inbound_list.append(anchors[i,j])
-        anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4)
-        num_anchor_inbound=anchor_inbound.shape[0]
-        
-        iou_inbound_anchor_list=[]
-        positive_inbound_anchor_list=[]
-        negative_inbound_anchor_list=[]
-        for obj_idx in range(bboxes.shape[0]):
-          box_cx=bboxes[obj_idx][0].numpy()
-          box_cy=bboxes[obj_idx][1].numpy()
-          box_w=bboxes[obj_idx][2].numpy()
-          box_h=bboxes[obj_idx][3].numpy()
-          bbox_single=bboxes[obj_idx].view(1,-1)
-          bbox_n=bbox_single.repeat(num_anchor_inbound,1)
-          iou=self.IOU(bbox_n,anchor_inbound)
-          iou_inbound_anchor_list.append(iou)
-          iou_low_mask=(iou<0.3)
-          negative_inbound_anchor_list.append(iou_low_mask)
-          iou_high_mask=(iou>0.7)
-          max_iou=torch.max(iou)
-          max_iou_idx=torch.argmax(iou)
-          iou_high_mask[max_iou_idx]=True
-          positive_inbound_anchor_list.append(iou_high_mask)
-        
-        iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
-        negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))])
-        negative_idx=torch.squeeze(anchor_inbound[negative_mask.nonzero(),:2].float()/self.anchors_param['stride']-0.5).long()
-        positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))])
-        positive_idx=torch.squeeze(anchor_inbound[positive_mask.nonzero(),:2].float()/self.anchors_param['stride']-0.5).long()
-        highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)
-        labels[positive_idx[:,0],positive_idx[:,1]]=1
-        labels[negative_idx[:,0],negative_idx[:,1]]=0
-        ground_coord_orig=anchors.permute((2,0,1))
-        ground_coord=ground_coord_orig
-        
-        highest_bbox_idx=highest_iou_bbox_idx[positive_mask]
-        bbox_positive=bboxes[highest_bbox_idx]
-        bbox_x=bbox_positive[:,0]
-        bbox_y=bbox_positive[:,1]
-        bbox_w=bbox_positive[:,2]
-        bbox_h=bbox_positive[:,3]
-        x_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][0,:]
-        y_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][1,:]
-        w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:]
-        h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:]
-        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][0,:]=(bbox_x-x_a)/(w_a+1e-9)
-        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
-        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
-        ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
-        ground_class=torch.unsqueeze(labels,0)
-        
-        self.ground_dict[key] = (ground_class, ground_coord)
-        assert ground_class.shape==(1,grid_size[0],grid_size[1])
-        assert ground_coord.shape==(4,grid_size[0],grid_size[1])
+      stride=self.anchors_param['stride']
+      labels=-torch.ones(grid_size[0],grid_size[1]).long()
+      w=anchors[0,0,2]
+      h=anchors[0,0,3]
+      anchor_inbound_list=[]
+      for i in range(grid_size[0]):
+        for j in range(grid_size[1]):
+          if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_size[1]-w*0.5 or anchors[i,j,1]>image_size[0]-h*0.5:
+            continue
+          anchor_inbound_list.append(anchors[i,j].float())
+      anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4) i,j,w,h
+      num_anchor_inbound=anchor_inbound.shape[0]
+      iou_inbound_anchor_list=[]
+      positive_inbound_anchor_list=[]
+      negative_inbound_anchor_list=[]
+      max_iou_all=0
+      for obj_idx in range(bboxes.shape[0]):    
+        bbox_single=bboxes[obj_idx].view(1,-1)
+        bbox_n=bbox_single.repeat(num_anchor_inbound,1)
+        iou=IOU(bbox_n,anchor_inbound)
+        iou_inbound_anchor_list.append(iou)
+        iou_low_mask=(iou<0.3)
+        negative_inbound_anchor_list.append(iou_low_mask)
+        iou_high_mask=(iou>0.7)
+        max_iou=torch.max(iou)
+        max_iou_all=max(max_iou,max_iou_all)
+        max_iou_idx=torch.argmax(iou)
+        iou_high_mask[max_iou_idx]=True
+        positive_inbound_anchor_list.append(iou_high_mask)
+      iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
+      positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))])
+      positive_idx=torch.squeeze(anchor_inbound[positive_mask.nonzero(),:2].float()/stride-0.5).long()
+      if max_iou_all<=0.7:
+          positive_idx=torch.unsqueeze(positive_idx,0)
+#          temp=positive_idx[1]
+#          positive_idx[1]=positive_idx[0]
+#          positive_idx[0]=temp
 
-        return ground_class, ground_coord
+      positive_idx=torch.index_select(positive_idx, 1, torch.LongTensor([1,0]))
+      print(positive_idx)
+      negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))])
+      negative_idx=torch.squeeze(anchor_inbound[negative_mask.nonzero()[:],:2].float()/stride-0.5).long()
+      negative_idx=torch.index_select(negative_idx, 1, torch.LongTensor([1,0]))
+      print(negative_idx.shape)
+      highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)
+      labels[positive_idx[:,0],positive_idx[:,1]]=1
+      labels[negative_idx[:,0],negative_idx[:,1]]=0
+      ground_coord_orig=anchors.permute((2,0,1))
+      ground_coord=ground_coord_orig
+    
+      highest_bbox_idx=highest_iou_bbox_idx[positive_mask]
+      bbox_positive=bboxes[highest_bbox_idx]
+      bbox_x=bbox_positive[:,0]
+      bbox_y=bbox_positive[:,1]
+      bbox_w=bbox_positive[:,2]
+      bbox_h=bbox_positive[:,3]
+      x_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][0,:]
+      y_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][1,:]
+      w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:]
+      h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:]
+      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][0,:]=(bbox_x-x_a)/(w_a+1e-9)
+      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
+      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
+      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
+      
+      ground_class=torch.unsqueeze(labels,0)
+        
+      self.ground_dict[key] = (ground_class, ground_coord)
+      assert ground_class.shape==(1,grid_size[0],grid_size[1])
+      assert ground_coord.shape==(4,grid_size[0],grid_size[1])
+
+      return ground_class, ground_coord
 
     # Compute the loss of the classifier
     # Input:
@@ -280,7 +288,8 @@ class RPNHead(torch.nn.Module):
         #torch.nn.BCELoss()
         # TODO compute classifier's loss
 
-        return loss,sum_count
+#        return loss,sum_count
+        pass
 
 
 
@@ -363,77 +372,4 @@ class RPNHead(torch.nn.Module):
         pass
     
 if __name__=="__main__":
-    imgs_path = '../../data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '../../data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = '../../data/hw3_mycocodata_labels_comp_zlib.npy'
-    bboxes_path = '../../data/hw3_mycocodata_bboxes_comp_zlib.npy'
-
-    # set up output dir (for plotGT)
-    try:
-        shutil.rmtree("plotgt_result")
-    except FileNotFoundError:
-        pass
-    os.makedirs("plotgt_result", exist_ok=True)
-
-    paths = [imgs_path, masks_path, labels_path, bboxes_path]
-    # load the data into data.Dataset
-    dataset = BuildDataset(paths)
-
-    ## Visualize debugging
-    # --------------------------------------------
-    # build the dataloader
-    # set 20% of the dataset as the training data
-    full_size = len(dataset)
-    train_size = int(full_size * 0.8)
-    test_size = full_size - train_size
-    # random split the dataset into training and testset
-    # set seed
-    torch.random.manual_seed(1)
-    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-    # push the randomized training data into the dataloader
-
-    # train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
-    # test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
-    batch_size = 2
-    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    train_loader = train_build_loader.loader()
-    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    test_loader = test_build_loader.loader()
-
-
-    resnet50_fpn = Resnet50Backbone()
-    solo_head = SOLOHead(num_classes=4) ## class number is 4, because consider the background as one category.
-    # loop the image
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
-    # to gpu device
-    resnet50_fpn = resnet50_fpn.to(device)
-    solo_head = solo_head.to(device)
-
-    for iter, data in enumerate(train_loader, 0):
-        img, label_list, mask_list, bbox_list = [data[i] for i in range(len(data))]
-        # fpn is a dict
-        img = img.to(device)
-        backout = resnet50_fpn(img)
-        fpn_feat_list = list(backout.values())
-        # make the target
-
-
-        ## demo   
-        #cate_pred_list[0]:bz, 3, num_grid,num_grid    len(cate_pred_list)=5               value [0,1]
-        #ins_pred_list[0]:bz, num_grid^2, 2*H_feat, 2*W_feat   len(cate_pred_list)=5       value [0,1]
-        cate_pred_list, ins_pred_list = solo_head.forward(fpn_feat_list, eval=False) 
-        
-        # len(ins_gts_list[0])=5, ins_gts_list[0][0]:num_grid^2, 2*H_feat, 2*W_feat   len(ins_gts_list)=bz   value:0 or 1
-        # len(ins_ind_gts_list[0])=5, ins_gts_list[0][0]:num_grid^2   len(ins_ind_gts_list)=bz   value:0 or 1
-        # len(cate_gts_list[0])=5, cate_gts_list[0][0]:num_grid,num_grid   len(ins_gts_list)=bz   value:0,1,2
-        ins_gts_list, ins_ind_gts_list, cate_gts_list = solo_head.target(ins_pred_list,
-                                                                        bbox_list,
-                                                                        label_list,
-                                                                        mask_list)
-#        mask_color_list = ["jet", "ocean", "Spectral"]
-#        solo_head.PlotGT(ins_gts_list,ins_ind_gts_list,cate_gts_list,mask_color_list,img)
-#        # break
-#
-#        if (iter > 40):
-#            break
+    pass
