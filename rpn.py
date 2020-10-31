@@ -240,10 +240,6 @@ class RPNHead(torch.nn.Module):
       positive_idx=torch.squeeze(anchor_inbound[positive_mask.nonzero(),:2].float()/stride-0.5).long()
       if max_iou_all<=0.7:
           positive_idx=torch.unsqueeze(positive_idx,0)
-#          temp=positive_idx[1]
-#          positive_idx[1]=positive_idx[0]
-#          positive_idx[0]=temp
-
       positive_idx=torch.index_select(positive_idx, 1, torch.LongTensor([1,0]))
       print(positive_idx)
       negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))])
