@@ -243,10 +243,10 @@ if __name__ == '__main__':
   
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     rpn_net = RPNHead()
-    # push the randomized training data into the dataloader
-
-    # train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
-    # test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
+#     push the randomized training data into the dataloader
+#
+#     train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
+#     test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
     batch_size = 2
     train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     train_loader = train_build_loader.loader()
@@ -255,8 +255,6 @@ if __name__ == '__main__':
 
     
     for idx, batch in enumerate(train_loader, 0):
-#        if idx != 212:
-#            continue
         images = batch['images'][0, :, :, :]
         indexes = batch['index']
         boxes = batch['bbox']
@@ -275,32 +273,31 @@ if __name__ == '__main__':
         fig, ax = plt.subplots(1, 1)
         ax.imshow(images.permute(1, 2, 0))
 
-        find_cor = (flatten_gt == 1).nonzero()
-        find_neg = (flatten_gt == -1).nonzero()
-        
-        num_ob=len(boxes[0])
-        for i in range(num_ob):
-            col = 'r'
-            rect = patches.Rectangle((boxes[0][i,0]-0.5*boxes[0][i,2], boxes[0][i,1]-0.5*boxes[0][i,3]), boxes[0][i,2], boxes[0][i,3], fill=False,
-                                     color=col)
-            ax.add_patch(rect)
-            
-        for elem in find_cor:
-            coord = decoded_coord[elem, :].view(-1)
-            anchor = flatten_anchors[elem, :].view(-1)
+        find_cor_bz = (flatten_gt == 1).nonzero()
+        find_neg_bz = (flatten_gt == -1).nonzero()
+                   
+        bz=len(boxes)
+        total_number_of_anchors=gt.shape[2]*gt.shape[3]
+        for i in range(bz):
+            mask1 = find_cor_bz>i*total_number_of_anchors
+            mask2 = find_cor_bz<(i+1)*total_number_of_anchors
+            mask = torch.logical_and(mask1, mask2)
+            find_cor = find_cor_bz[mask]
+            for elem in find_cor:
+                coord = decoded_coord[elem, :].view(-1)
+                anchor = flatten_anchors[elem, :].view(-1)
+                col = 'r'
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                         color=col)
+                
+                ax.add_patch(rect)
+                rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
+                                         fill=False, color='b')
+                ax.add_patch(rect)
+    
+            plt.show()
+            saving_file = "anchor_bbox.png"
+            plt.savefig(saving_file)
 
-#            col = 'r'
-#            rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
-#                                     color=col)
-            
-#            ax.add_patch(rect)
-            rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
-                                     fill=False, color='b')
-            ax.add_patch(rect)
-
-        plt.show()
-        saving_file = "anchor_bbox.png"
-        plt.savefig(saving_file)
-        print("box"+str( boxes[0]))
-        if (idx > 20):
+        if (idx > 10):
             break

@@ -43,8 +43,8 @@ def IOU(bbox_1, bbox_2):
 #       out_c: (bz,1,grid_size[0],grid_size[1])
 #       anchors: (grid_size[0],grid_size[1],4)
 # Output:
-#       flatten_regr: (bz*grid_size[0]*grid_size[1],4)
-#       flatten_clas: (bz*grid_size[0]*grid_size[1])
+#       flatten_coord: (bz*grid_size[0]*grid_size[1],4)
+#       flatten_gt: (bz*grid_size[0]*grid_size[1])
 #       flatten_anchors: (bz*grid_size[0]*grid_size[1],4)
 def output_flattening(out_r,out_c,anchors):
     #######################################
@@ -52,19 +52,19 @@ def output_flattening(out_r,out_c,anchors):
     #######################################
     bz=out_r.shape[0]
     
-    out_c=torch.squeeze(out_c)
-    flatten_clas=torch.flatten(out_c, start_dim=0, end_dim=2)
+    out_c=torch.squeeze(out_c, dim=1)
+    flatten_gt=torch.flatten(out_c, start_dim=0, end_dim=2)
     
     out_r=out_r.permute(0,2,3,1)
-    flatten_regr=torch.flatten(out_r, start_dim=0, end_dim=2)
+    flatten_coord=torch.flatten(out_r, start_dim=0, end_dim=2)
     
     anchors=torch.unsqueeze(anchors,0)
     anchors=anchors.repeat(bz,1,1,1)
     flatten_anchors=torch.flatten(anchors,start_dim=0, end_dim=2)
-    assert flatten_regr.shape==(bz*50*68,4)
-    assert flatten_clas.shape==(bz*50*68,)
+    assert flatten_coord.shape==(bz*50*68,4)
+    assert flatten_gt.shape==(bz*50*68,)
     assert flatten_anchors.shape==(bz*50*68,4)
-    return flatten_regr, flatten_clas, flatten_anchors
+    return flatten_coord, flatten_gt, flatten_anchors
     
 
 
@@ -82,8 +82,8 @@ def output_decoding(flatten_out,flatten_anchors, device='cpu'):
     # TODO decode the output
     #######################################
     x=flatten_out.shape[0]
-    x_c=flatten_out[:,0]*flatten_anchors[:,0]+flatten_anchors[:,0]
-    y_c=flatten_out[:,1]*flatten_anchors[:,1]+flatten_anchors[:,1]
+    x_c=flatten_out[:,0]*flatten_anchors[:,2]+flatten_anchors[:,0]
+    y_c=flatten_out[:,1]*flatten_anchors[:,3]+flatten_anchors[:,1]
     w=torch.exp(flatten_out[:,2]+torch.log(flatten_anchors[:,2].float()))
     h=torch.exp(flatten_out[:,3]+torch.log(flatten_anchors[:,3].float()))
     xl=x_c-0.5*w

@@ -16,7 +16,7 @@ gc.enable()
 
 class RPNHead(torch.nn.Module):
 
-    def __init__(self,  device='cuda', anchors_param=dict(ratio=0.8,scale= 256, grid_size=(50, 68), stride=16)):
+    def __init__(self,  device='cuda', anchors_param=dict(ratio=1,scale= 256, grid_size=(50, 68), stride=16)):
         # Initialize the backbone, intermediate layer clasifier and regressor heads of the RPN
         super(RPNHead,self).__init__()
 
@@ -120,7 +120,7 @@ class RPNHead(torch.nn.Module):
         ######################################
         h_2=torch.tensor(scale**2/aspect_ratio,dtype=float)
         h=torch.round(torch.sqrt(h_2)).long()
-        w=torch.round(aspect_ratio*h).long()
+        w=torch.round(aspect_ratio*h.float()).long()
         anchors=torch.zeros(grid_sizes[0],grid_sizes[1],4).long()
         x=torch.arange(grid_sizes[0])
         y=torch.arange(grid_sizes[1])
@@ -198,10 +198,10 @@ class RPNHead(torch.nn.Module):
     #       ground_clas:  (1,grid_size[0],grid_size[1])
     #       ground_coord: (4,grid_size[0],grid_size[1])
     def create_ground_truth(self, bboxes, index, grid_size, anchors, image_size):
-      key = str(index)
-      if key in self.ground_dict:
-            groundt, ground_coord = self.ground_dict[key]
-            return groundt, ground_coord
+#      key = str(index)
+#      if key in self.ground_dict:
+#            groundt, ground_coord = self.ground_dict[key]
+#            return groundt, ground_coord
 
         #####################################################
         # TODO create ground truth for a single image
@@ -221,56 +221,62 @@ class RPNHead(torch.nn.Module):
       iou_inbound_anchor_list=[]
       positive_inbound_anchor_list=[]
       negative_inbound_anchor_list=[]
-      max_iou_all=0
+
       for obj_idx in range(bboxes.shape[0]):
         bbox_single=bboxes[obj_idx].view(1,-1)
         bbox_n=bbox_single.repeat(num_anchor_inbound,1)
-        iou=self.IOU(bbox_n,anchor_inbound)
+        iou=self.IOU(bbox_n,anchor_inbound)        
         iou_inbound_anchor_list.append(iou)
+        
         iou_low_mask=(iou<0.3)
         negative_inbound_anchor_list.append(iou_low_mask)
+        
         iou_high_mask=(iou>0.7)
-        max_iou=torch.max(iou)
-        max_iou_all=max(max_iou,max_iou_all)
         max_iou_idx=torch.argmax(iou)
         iou_high_mask[max_iou_idx]=True
         positive_inbound_anchor_list.append(iou_high_mask)
+        
       iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
       positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))])
-      positive_idx=torch.squeeze(anchor_inbound[positive_mask.nonzero(),:2].float()/stride-0.5).long()
-      if bboxes.shape[0]< 2 and max_iou_all <=0.7:
-          positive_idx=torch.unsqueeze(positive_idx,0)
+      temp=torch.squeeze(positive_mask.nonzero(),dim=1)
+      positive_idx=(anchor_inbound[temp,0:2].float()/stride-0.5).long()
       positive_idx=torch.index_select(positive_idx, 1, torch.LongTensor([1,0]))
       print(positive_idx)
       negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))])
-      negative_idx=torch.squeeze(anchor_inbound[negative_mask.nonzero()[:],:2].float()/stride-0.5).long()
+      temp1=torch.squeeze(negative_mask.nonzero(),dim=1)
+      negative_idx=(anchor_inbound[temp1,0:2].float()/stride-0.5).long()     
       negative_idx=torch.index_select(negative_idx, 1, torch.LongTensor([1,0]))
       print(negative_idx.shape)
-      highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)
-#      assert positive_idx.shape=
-      labels[positive_idx[:,0],positive_idx[:,1]]=1
+      highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)     
       labels[negative_idx[:,0],negative_idx[:,1]]=0
+      labels[positive_idx[:,0],positive_idx[:,1]]=1
       ground_coord_orig=anchors.permute((2,0,1))
-      ground_coord=ground_coord_orig
-
+#      ground_coord=ground_coord_orig
+     
       highest_bbox_idx=highest_iou_bbox_idx[positive_mask]
       bbox_positive=bboxes[highest_bbox_idx]
-      bbox_x=bbox_positive[:,0]
-      bbox_y=bbox_positive[:,1]
-      bbox_w=bbox_positive[:,2]
-      bbox_h=bbox_positive[:,3]
-      x_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][0,:]
-      y_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][1,:]
-      w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:]
-      h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:]
-      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][0,:]=(bbox_x-x_a)/(w_a+1e-9)
-      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
-      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
-      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
-
+      bbox_x=bbox_positive[:,0].float()
+      bbox_y=bbox_positive[:,1].float()
+      bbox_w=bbox_positive[:,2].float()
+      bbox_h=bbox_positive[:,3].float()
+      x_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][0,:].float()
+      y_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][1,:].float()
+      w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:].float()
+      h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:].float()
+      
+#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][0,:]=(bbox_x-x_a)/(w_a+1e-9)
+#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
+#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
+#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
+      ground_coord=torch.zeros(4,grid_size[0],grid_size[1])
+      
+      ground_coord[0,positive_idx[:,0],positive_idx[:,1]]=(bbox_x-x_a)/(w_a+1e-9)
+      ground_coord[1,positive_idx[:,0],positive_idx[:,1]]=(bbox_y-y_a)/(h_a+1e-9)
+      ground_coord[2,positive_idx[:,0],positive_idx[:,1]]=torch.log(bbox_w/(w_a+1e-9))
+      ground_coord[3,positive_idx[:,0],positive_idx[:,1]]=torch.log(bbox_h/(h_a+1e-9))
       ground_class=torch.unsqueeze(labels,0)
 
-      self.ground_dict[key] = (ground_class, ground_coord)
+#      self.ground_dict[key] = (ground_class, ground_coord)
       assert ground_class.shape==(1,grid_size[0],grid_size[1])
       assert ground_coord.shape==(4,grid_size[0],grid_size[1])
 
