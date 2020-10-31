@@ -167,26 +167,8 @@ class RPNHead(torch.nn.Module):
         return ground_class, ground_coord
 
 
-    # This function calculate iou matrix of two sets of bboxes with expression of [c_x,c_y,w,h]
-    # bbox:(num_box,4)
-    def IOU(self,bbox_1 ,bbox_2):
-          x_1up,y_1up,x_1l,y_1l=bbox_1[:,0]-0.5*bbox_1[:,2],bbox_1[:,1]-0.5*bbox_1[:,3],bbox_1[:,0]+0.5*bbox_1[:,2],bbox_1[:,1]+0.5*bbox_1[:,3]
-          x_2up,y_2up,x_2l,y_2l=bbox_2[:,0]-0.5*bbox_2[:,2],bbox_2[:,1]-0.5*bbox_2[:,3],bbox_2[:,0]+0.5*bbox_2[:,2],bbox_2[:,1]+0.5*bbox_2[:,3]
 
-          x_up=torch.max(x_1up,x_2up)
-          y_up=torch.max(y_1up,y_2up)
 
-          x_l=torch.min(x_1l,x_2l)
-          y_l=torch.min(y_1l,y_2l)
-
-          inter_area = (x_l-x_up).clamp(min=0) * (y_l-y_up).clamp(min=0)
-
-          area_box1 = (x_1l-x_1up).clamp(min=0) * (y_1l-y_1up).clamp(min=0)
-          area_box2 = (x_2l-x_2up).clamp(min=0) * (y_2l-y_2up).clamp(min=0)
-          union_area=area_box1+area_box2-inter_area
-          iou=(inter_area+ 1e-9)/(union_area+1e-9)
-
-          return iou
     # This function creates the ground truth for one image
     # It also caches the ground truth for the image using its index
     # Input:
@@ -198,10 +180,10 @@ class RPNHead(torch.nn.Module):
     #       ground_clas:  (1,grid_size[0],grid_size[1])
     #       ground_coord: (4,grid_size[0],grid_size[1])
     def create_ground_truth(self, bboxes, index, grid_size, anchors, image_size):
-#      key = str(index)
-#      if key in self.ground_dict:
-#            groundt, ground_coord = self.ground_dict[key]
-#            return groundt, ground_coord
+      key = str(index)
+      if key in self.ground_dict:
+            groundt, ground_coord = self.ground_dict[key]
+            return groundt, ground_coord
 
         #####################################################
         # TODO create ground truth for a single image
@@ -225,7 +207,7 @@ class RPNHead(torch.nn.Module):
       for obj_idx in range(bboxes.shape[0]):
         bbox_single=bboxes[obj_idx].view(1,-1)
         bbox_n=bbox_single.repeat(num_anchor_inbound,1)
-        iou=self.IOU(bbox_n,anchor_inbound)        
+        iou=IOU(bbox_n,anchor_inbound)        
         iou_inbound_anchor_list.append(iou)
         
         iou_low_mask=(iou<0.3)
@@ -264,10 +246,6 @@ class RPNHead(torch.nn.Module):
       w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:].float()
       h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:].float()
       
-#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][0,:]=(bbox_x-x_a)/(w_a+1e-9)
-#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
-#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
-#      ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
       ground_coord=torch.zeros(4,grid_size[0],grid_size[1])
       
       ground_coord[0,positive_idx[:,0],positive_idx[:,1]]=(bbox_x-x_a)/(w_a+1e-9)
@@ -276,7 +254,7 @@ class RPNHead(torch.nn.Module):
       ground_coord[3,positive_idx[:,0],positive_idx[:,1]]=torch.log(bbox_h/(h_a+1e-9))
       ground_class=torch.unsqueeze(labels,0)
 
-#      self.ground_dict[key] = (ground_class, ground_coord)
+      self.ground_dict[key] = (ground_class, ground_coord)
       assert ground_class.shape==(1,grid_size[0],grid_size[1])
       assert ground_coord.shape==(4,grid_size[0],grid_size[1])
 

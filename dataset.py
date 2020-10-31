@@ -9,6 +9,7 @@ from utils import *
 import matplotlib.pyplot as plt
 from rpn import *
 import matplotlib.patches as patches
+import os
 
 
 class BuildDataset(torch.utils.data.Dataset):
@@ -226,7 +227,9 @@ if __name__ == '__main__':
     masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
     labels_path = '../data/hw3_mycocodata_labels_comp_zlib.npy'
     bboxes_path = '../data/hw3_mycocodata_bboxes_comp_zlib.npy'
+    
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
+    os.makedirs("grndbox", exist_ok=True)
     # load the data into data.Dataset
     torch.random.manual_seed(1)
     torch.backends.cudnn.deterministic = True
@@ -255,7 +258,7 @@ if __name__ == '__main__':
 
     
     for idx, batch in enumerate(train_loader, 0):
-        images = batch['images'][0, :, :, :]
+        images = batch['images'][:, :, :, :]
         indexes = batch['index']
         boxes = batch['bbox']
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
@@ -267,21 +270,25 @@ if __name__ == '__main__':
         decoded_coord = output_decoding(flatten_coord, flatten_anchors)
 
         # Plot the image and the anchor boxes with the positive labels and their corresponding ground truth box
-        images = transforms.functional.normalize(images,
-                                                 [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-                                                 [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
-        fig, ax = plt.subplots(1, 1)
-        ax.imshow(images.permute(1, 2, 0))
 
         find_cor_bz = (flatten_gt == 1).nonzero()
         find_neg_bz = (flatten_gt == -1).nonzero()
                    
-        bz=len(boxes)
+        batch_size=len(boxes)
         total_number_of_anchors=gt.shape[2]*gt.shape[3]
-        for i in range(bz):
-            mask1 = find_cor_bz>i*total_number_of_anchors
-            mask2 = find_cor_bz<(i+1)*total_number_of_anchors
-            mask = torch.logical_and(mask1, mask2)
+        num_cor_bz = find_cor_bz.shape[0]
+        for i in range(batch_size):
+            image = transforms.functional.normalize(images[i],
+                                         [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                                         [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)          
+            fig, ax = plt.subplots(1, 1)
+            ax.imshow(image.permute(1, 2, 0))
+            mask = [torch.rand(num_cor_bz)>0.5 for x in range(2)]
+            mask1 = (find_cor_bz>i*total_number_of_anchors).flatten()
+            mask2 = (find_cor_bz<(i+1)*total_number_of_anchors).flatten()
+            mask[0]=mask1
+            mask[1]=mask2
+            mask=(torch.sum(torch.stack(mask),dim=0) == 2)
             find_cor = find_cor_bz[mask]
             for elem in find_cor:
                 coord = decoded_coord[elem, :].view(-1)
@@ -294,10 +301,9 @@ if __name__ == '__main__':
                 rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
                                          fill=False, color='b')
                 ax.add_patch(rect)
-    
+              
+            plt.savefig("./grndbox/visualtrainset_{}_{}_.png".format(idx, i))
             plt.show()
-            saving_file = "anchor_bbox.png"
-            plt.savefig(saving_file)
 
-        if (idx > 10):
+        if (idx > 15):
             break
