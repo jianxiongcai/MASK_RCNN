@@ -132,7 +132,6 @@ class BuildDataset(torch.utils.data.Dataset):
             # bbox transform for augmentation (flip horizontal axis)
             ret_bbox = trans_bbox.clone()
             ret_bbox[:, 0] = 1088.0 - ret_bbox[:, 0]
-            assert torch.all(ret_bbox[:, 0] < ret_bbox[:, 1])
             # for aug, create a unique index for unique identification
             index = index + self.images_h5['data'].shape[0]
         else:

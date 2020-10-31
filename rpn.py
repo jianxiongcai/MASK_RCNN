@@ -71,6 +71,7 @@ class RPNHead(torch.nn.Module):
     # Ouput:
     #       logits: (bz,1,grid_size[0],grid_size[1])}
     #       bbox_regs: (bz,4, grid_size[0],grid_size[1])}
+    # Note: bbox_regs is not raw bounding box coordinates
     def forward(self, X):
 
         # forward through the Backbone
@@ -83,9 +84,7 @@ class RPNHead(torch.nn.Module):
         logits = self.cls_head(X)
 
         # forward through the Regressor Head
-        reg_output =  self.reg_head(X)
-
-        # todo: decode reg_output (w.r.t. anchor cell grid) to bbox_regs
+        bbox_regs =  self.reg_head(X)
 
         assert logits.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert bbox_regs.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
@@ -129,7 +128,7 @@ class RPNHead(torch.nn.Module):
         anchors[xx,yy,1]=((xx+0.5)*stride).long()
         anchors[xx,yy,2]=h
         anchors[xx,yy,3]=w
-           
+
         assert anchors.shape == (grid_sizes[0] , grid_sizes[1],4)
 
         return anchors
@@ -153,14 +152,14 @@ class RPNHead(torch.nn.Module):
     def create_batch_truth(self,bboxes_list,indexes,image_shape):
         #####################################
         # TODO create ground truth for a batch of images
-        #####################################     
+        #####################################
         bz=len(bboxes_list)
         grid_size=(self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         ground_class=torch.zeros(bz,1,grid_size[0],grid_size[1])
         ground_coord=torch.zeros(bz,4,grid_size[0],grid_size[1])
         for idx in range(bz):
             ground_class[idx,:,:,:],ground_coord[idx,:,:,:]=self.create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
-        
+
         assert ground_class.shape[1:4]==(1,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
         assert ground_coord.shape[1:4]==(4,self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
 
@@ -172,20 +171,20 @@ class RPNHead(torch.nn.Module):
     def IOU(self,bbox_1 ,bbox_2):
           x_1up,y_1up,x_1l,y_1l=bbox_1[:,0]-0.5*bbox_1[:,2],bbox_1[:,1]-0.5*bbox_1[:,3],bbox_1[:,0]+0.5*bbox_1[:,2],bbox_1[:,1]+0.5*bbox_1[:,3]
           x_2up,y_2up,x_2l,y_2l=bbox_2[:,0]-0.5*bbox_2[:,2],bbox_2[:,1]-0.5*bbox_2[:,3],bbox_2[:,0]+0.5*bbox_2[:,2],bbox_2[:,1]+0.5*bbox_2[:,3]
-          
+
           x_up=torch.max(x_1up,x_2up)
           y_up=torch.max(y_1up,y_2up)
-        
+
           x_l=torch.min(x_1l,x_2l)
           y_l=torch.min(y_1l,y_2l)
-        
+
           inter_area = (x_l-x_up).clamp(min=0) * (y_l-y_up).clamp(min=0)
-        
+
           area_box1 = (x_1l-x_1up).clamp(min=0) * (y_1l-y_1up).clamp(min=0)
           area_box2 = (x_2l-x_2up).clamp(min=0) * (y_2l-y_2up).clamp(min=0)
           union_area=area_box1+area_box2-inter_area
-          iou=(inter_area+ 1e-3)/(union_area+1e-3)  
-        
+          iou=(inter_area+ 1e-3)/(union_area+1e-3)
+
           return iou
     # This function creates the ground truth for one image
     # It also caches the ground truth for the image using its index
@@ -222,7 +221,7 @@ class RPNHead(torch.nn.Module):
       positive_inbound_anchor_list=[]
       negative_inbound_anchor_list=[]
       max_iou_all=0
-      for obj_idx in range(bboxes.shape[0]):    
+      for obj_idx in range(bboxes.shape[0]):
         bbox_single=bboxes[obj_idx].view(1,-1)
         bbox_n=bbox_single.repeat(num_anchor_inbound,1)
         iou=IOU(bbox_n,anchor_inbound)
@@ -251,7 +250,7 @@ class RPNHead(torch.nn.Module):
       labels[negative_idx[:,0],negative_idx[:,1]]=0
       ground_coord_orig=anchors.permute((2,0,1))
       ground_coord=ground_coord_orig
-    
+
       highest_bbox_idx=highest_iou_bbox_idx[positive_mask]
       bbox_positive=bboxes[highest_bbox_idx]
       bbox_x=bbox_positive[:,0]
@@ -266,9 +265,9 @@ class RPNHead(torch.nn.Module):
       ground_coord[:,positive_idx[:,0],positive_idx[:,1]][1,:]=(bbox_y-y_a)/(h_a+1e-9)
       ground_coord[:,positive_idx[:,0],positive_idx[:,1]][2,:]=torch.log(bbox_w/(w_a+1e-9))
       ground_coord[:,positive_idx[:,0],positive_idx[:,1]][3,:]=torch.log(bbox_h/(h_a+1e-9))
-      
+
       ground_class=torch.unsqueeze(labels,0)
-        
+
       self.ground_dict[key] = (ground_class, ground_coord)
       assert ground_class.shape==(1,grid_size[0],grid_size[1])
       assert ground_coord.shape==(4,grid_size[0],grid_size[1])
@@ -280,9 +279,18 @@ class RPNHead(torch.nn.Module):
     #      p_out:     (positives_on_mini_batch)  (output of the classifier for sampled anchors with positive gt labels)
     #      n_out:     (negatives_on_mini_batch) (output of the classifier for sampled anchors with negative gt labels
     def loss_class(self,p_out,n_out):
+        assert p_out.dim() == 1
+        assert n_out.dim() == 1
+        # compute classifier's loss
+        cls_loss = torch.nn.BCELoss(reduction='mean')
 
-        #torch.nn.BCELoss()
-        # TODO compute classifier's loss
+        N_pos = p_out.shape[0]
+        N_neg = n_out.shape[0]
+        sum_count = N_pos + N_neg
+
+        pred = torch.cat([p_out, n_out])
+        gt = torch.cat([torch.ones(N_pos), torch.zeros(N_neg)])
+        loss = cls_loss(pred, gt)
 
 #        return loss,sum_count
         pass
@@ -294,28 +302,77 @@ class RPNHead(torch.nn.Module):
     #       pos_target_coord: (positive_on_mini_batch,4) (ground truth of the regressor for sampled anchors with positive gt labels)
     #       pos_out_r: (positive_on_mini_batch,4)        (output of the regressor for sampled anchors with positive gt labels)
     def loss_reg(self,pos_target_coord,pos_out_r):
-            #torch.nn.SmoothL1Loss()
-            # TODO compute regressor's loss
+        # compute regressor's loss
+        assert pos_out_r.dim() == 2
+        assert pos_target_coord.dim() == 2
+        assert pos_target_coord.shape == pos_out_r.shape
+        assert pos_out_r.shape[1] == 4
 
-#            return loss, sum_count
-            pass
+        reg_loss = torch.nn.SmoothL1Loss(reduction = 'mean')
+        loss = reg_loss(pos_out_r, pos_target_coord)
+        sum_count = pos_out_r.shape[0]
+
+        return loss, sum_count
 
 
 
     # Compute the total loss
     # Input:
-    #       clas_out: (bz,1,grid_size[0],grid_size[1])
-    #       regr_out: (bz,4,grid_size[0],grid_size[1])
-    #       targ_clas:(bz,1,grid_size[0],grid_size[1])
-    #       targ_regr:(bz,4,grid_size[0],grid_size[1])
+    #       cls_out: (bz,1,grid_size[0],grid_size[1])
+    #       reg_out: (bz,4,grid_size[0],grid_size[1])
+    #       targ_cls:(bz,1,grid_size[0],grid_size[1])
+    #       targ_reg:(bz,4,grid_size[0],grid_size[1])
     #       l: lambda constant to weight between the two losses
     #       effective_batch: the number of anchors in the effective batch (M in the handout)
-    def compute_loss(self,clas_out,regr_out,targ_clas,targ_regr, l=1, effective_batch=50):
-            #############################
-            # TODO compute the total loss
-            #############################
-#            return loss, loss_c, loss_r
-            pass
+    def compute_loss(self,cls_out,reg_out,targ_cls,targ_reg, l=1, effective_batch=50):
+        #############################
+        # compute the total loss
+        #############################
+        assert cls_out.shape[1] == 1
+        assert reg_out.shape[1] == 4
+        assert targ_cls.shape[1] == 1
+        assert targ_reg.shape[1] == 4
+
+        N_pos = int(effective_batch / 2)
+        N_neg = effective_batch - N_pos
+
+        # sampling
+        targ_cls_3 = targ_cls.squeeze(dim=1)                # 3-dimensional target cls tensor
+        pos_cord_all = torch.nonzero(targ_cls_3 == 1)       # (N_pos_all, 3): indice on dimension 0, 2, 3
+        neg_cord_all = torch.nonzero(targ_cls_3 == 0)
+
+        # sampling positive
+        if pos_cord_all.shape[0] > N_pos:                   # sample positive
+            # sampling indice: choose N_pos samples from all positive (pos_cord_all.shape[0])
+            pos_indice_keep = np.random.choice(pos_cord_all.shape[0], N_pos)
+            pos_cord_keep = pos_cord_all[pos_indice_keep, :]        # (N_pos, 3)
+        else:               # skip positive sampling, update N_pos / N_neg
+            pos_cord_keep = pos_cord_all
+            N_pos = pos_cord_keep.shape[0]
+            N_neg = effective_batch - N_pos
+
+        # sampling negative
+        if neg_cord_all.shape[0] < N_neg:
+            print("[WARN] not enough sample for negative sampling. Required: {}, Available: {}".format(
+                N_neg, neg_cord_all.shape[0]))
+        # sampling indice: choose N_pos samples from all positive (pos_cord_all.shape[0])
+        neg_indice_keep = np.random.choice(neg_cord_all.shape[0], N_neg)
+        neg_cord_keep = neg_cord_all[neg_indice_keep, :]            # (N_neg, 3)
+
+        # sampling (fetching values)
+        p_out = cls_out[pos_cord_keep[:, 0], 0, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
+        n_out = cls_out[neg_cord_keep[:, 0], 0, neg_cord_keep[:, 1], neg_cord_keep[:, 2]]
+        pos_out_r = reg_out[pos_cord_keep[:, 0], :, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
+        pos_target_coord = targ_reg[pos_cord_keep[:, 0], :, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
+
+        # compute loss
+        loss_c, cls_count = self.loss_class(p_out, n_out)
+        loss_r, reg_count = self.loss_reg(pos_target_coord, pos_out_r)
+        # todo: (jianxiong): normalize with count number?
+        # Note: provided testcase did not normalize
+        loss = loss_c + l * loss_r
+
+        return loss, loss_c, loss_r
 
 
 
@@ -366,6 +423,6 @@ class RPNHead(torch.nn.Module):
         ##################################
 #        return nms_clas,nms_prebox
         pass
-    
+
 if __name__=="__main__":
     pass
