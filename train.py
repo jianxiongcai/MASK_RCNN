@@ -11,7 +11,10 @@ import numpy as np
 from rpn import RPNHead
 from dataset import BuildDataset, BuildDataLoader
 import wandb
+import time
 
+# w and b login
+assert os.system("wandb login $(cat wandb_secret)") == 0
 wandb.init(project="hw4")
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -53,12 +56,8 @@ train_reg_loss = []
 train_tot_loss = []
 os.makedirs("checkpoints", exist_ok=True)
 
-# w and b login
-assert os.system("wandb login 4bf3ffafdbcdb3d79cc11faae0b37e9f7ea3829d") == 0
-
 # watch with wandb
 wandb.watch(rpn_head)
-
 for epoch in range(num_epochs):
     rpn_head.train()
     running_cls_loss = 0.0

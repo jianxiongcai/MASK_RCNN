@@ -223,11 +223,10 @@ class BuildDataLoader(torch.utils.data.DataLoader):
 
 if __name__ == '__main__':
     # file path and make a list
-    imgs_path = '../data/hw3_mycocodata_img_comp_zlib.h5'
-    masks_path = '../data/hw3_mycocodata_mask_comp_zlib.h5'
-    labels_path = '../data/hw3_mycocodata_labels_comp_zlib.npy'
-    bboxes_path = '../data/hw3_mycocodata_bboxes_comp_zlib.npy'
-    
+    imgs_path = 'data/hw3_mycocodata_img_comp_zlib.h5'
+    masks_path = 'data/hw3_mycocodata_mask_comp_zlib.h5'
+    labels_path = 'data/hw3_mycocodata_labels_comp_zlib.npy'
+    bboxes_path = 'data/hw3_mycocodata_bboxes_comp_zlib.npy'
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     os.makedirs("grndbox", exist_ok=True)
     # load the data into data.Dataset
