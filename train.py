@@ -14,8 +14,11 @@ import wandb
 import time
 
 # w and b login
-assert os.system("wandb login $(cat wandb_secret)") == 0
-wandb.init(project="hw4")
+LOGGING = ""
+# LOGGING = "wandb"
+if LOGGING == "wandb":
+    assert os.system("wandb login $(cat wandb_secret)") == 0
+    wandb.init(project="hw4")
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 #reproductivity
@@ -57,7 +60,8 @@ train_tot_loss = []
 os.makedirs("checkpoints", exist_ok=True)
 
 # watch with wandb
-wandb.watch(rpn_head)
+if LOGGING == "wandb":
+    wandb.watch(rpn_head)
 for epoch in range(num_epochs):
     rpn_head.train()
     running_cls_loss = 0.0
@@ -101,9 +105,10 @@ for epoch in range(num_epochs):
             train_reg_loss.append(logging_reg_loss)
             train_tot_loss.append(logging_tot_loss)
             print('\nIteration:{} Avg. train total loss: {:.4f}'.format(iter + 1, logging_tot_loss))
-            wandb.log({"train/cls_loss": logging_cls_loss,
-                       "train/reg_loss": logging_reg_loss,
-                       "train/tot_loss": logging_tot_loss})
+            if LOGGING == "wandb":
+                wandb.log({"train/cls_loss": logging_cls_loss,
+                           "train/reg_loss": logging_reg_loss,
+                           "train/tot_loss": logging_tot_loss})
             running_cls_loss = 0.0
             running_reg_loss = 0.0
             running_tot_loss = 0.0

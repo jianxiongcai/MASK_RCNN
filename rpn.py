@@ -278,8 +278,7 @@ class RPNHead(torch.nn.Module):
         gt = torch.cat([torch.ones(N_pos), torch.zeros(N_neg)])
         loss = cls_loss(pred, gt)
 
-#        return loss,sum_count
-        pass
+        return loss,sum_count
 
 
 
