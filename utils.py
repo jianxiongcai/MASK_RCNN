@@ -26,7 +26,7 @@ def IOU(bbox_1, bbox_2):
       area_box1 = (x_1l-x_1up).clamp(min=0) * (y_1l-y_1up).clamp(min=0)
       area_box2 = (x_2l-x_2up).clamp(min=0) * (y_2l-y_2up).clamp(min=0)
       union_area=area_box1+area_box2-inter_area
-      iou=(inter_area+ 1e-3)/(union_area+1e-3)  
+      iou=(inter_area+ 1e-9)/(union_area+1e-9)  
         
       return iou
     

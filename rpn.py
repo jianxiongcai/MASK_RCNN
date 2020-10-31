@@ -10,6 +10,7 @@ import torchvision
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import gc
+import numpy as np
 gc.enable()
 
 
@@ -126,8 +127,8 @@ class RPNHead(torch.nn.Module):
         xx,yy=torch.meshgrid(x,y)
         anchors[xx,yy,0]=((yy+0.5)*stride).long()
         anchors[xx,yy,1]=((xx+0.5)*stride).long()
-        anchors[xx,yy,2]=h
-        anchors[xx,yy,3]=w
+        anchors[xx,yy,2]=w
+        anchors[xx,yy,3]=h
 
         assert anchors.shape == (grid_sizes[0] , grid_sizes[1],4)
 
@@ -183,7 +184,7 @@ class RPNHead(torch.nn.Module):
           area_box1 = (x_1l-x_1up).clamp(min=0) * (y_1l-y_1up).clamp(min=0)
           area_box2 = (x_2l-x_2up).clamp(min=0) * (y_2l-y_2up).clamp(min=0)
           union_area=area_box1+area_box2-inter_area
-          iou=(inter_area+ 1e-3)/(union_area+1e-3)
+          iou=(inter_area+ 1e-9)/(union_area+1e-9)
 
           return iou
     # This function creates the ground truth for one image
@@ -224,7 +225,7 @@ class RPNHead(torch.nn.Module):
       for obj_idx in range(bboxes.shape[0]):
         bbox_single=bboxes[obj_idx].view(1,-1)
         bbox_n=bbox_single.repeat(num_anchor_inbound,1)
-        iou=IOU(bbox_n,anchor_inbound)
+        iou=self.IOU(bbox_n,anchor_inbound)
         iou_inbound_anchor_list.append(iou)
         iou_low_mask=(iou<0.3)
         negative_inbound_anchor_list.append(iou_low_mask)
@@ -237,7 +238,7 @@ class RPNHead(torch.nn.Module):
       iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
       positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))])
       positive_idx=torch.squeeze(anchor_inbound[positive_mask.nonzero(),:2].float()/stride-0.5).long()
-      if max_iou_all<=0.7:
+      if bboxes.shape[0]< 2 and max_iou_all <=0.7:
           positive_idx=torch.unsqueeze(positive_idx,0)
       positive_idx=torch.index_select(positive_idx, 1, torch.LongTensor([1,0]))
       print(positive_idx)
@@ -246,6 +247,7 @@ class RPNHead(torch.nn.Module):
       negative_idx=torch.index_select(negative_idx, 1, torch.LongTensor([1,0]))
       print(negative_idx.shape)
       highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)
+#      assert positive_idx.shape=
       labels[positive_idx[:,0],positive_idx[:,1]]=1
       labels[negative_idx[:,0],negative_idx[:,1]]=0
       ground_coord_orig=anchors.permute((2,0,1))

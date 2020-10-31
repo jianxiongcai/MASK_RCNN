@@ -228,6 +228,10 @@ if __name__ == '__main__':
     bboxes_path = '../data/hw3_mycocodata_bboxes_comp_zlib.npy'
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
     # load the data into data.Dataset
+    torch.random.manual_seed(1)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(0)
     dataset = BuildDataset(paths, augmentation=False)
 
     # build the dataloader
@@ -236,7 +240,7 @@ if __name__ == '__main__':
     train_size = int(full_size * 0.8)
     test_size = full_size - train_size
     # random split the dataset into training and testset
-
+  
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     rpn_net = RPNHead()
     # push the randomized training data into the dataloader
@@ -249,7 +253,10 @@ if __name__ == '__main__':
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader = test_build_loader.loader()
 
-    for i, batch in enumerate(train_loader, 0):
+    
+    for idx, batch in enumerate(train_loader, 0):
+#        if idx != 212:
+#            continue
         images = batch['images'][0, :, :, :]
         indexes = batch['index']
         boxes = batch['bbox']
@@ -270,15 +277,23 @@ if __name__ == '__main__':
 
         find_cor = (flatten_gt == 1).nonzero()
         find_neg = (flatten_gt == -1).nonzero()
-
+        
+        num_ob=len(boxes[0])
+        for i in range(num_ob):
+            col = 'r'
+            rect = patches.Rectangle((boxes[0][i,0]-0.5*boxes[0][i,2], boxes[0][i,1]-0.5*boxes[0][i,3]), boxes[0][i,2], boxes[0][i,3], fill=False,
+                                     color=col)
+            ax.add_patch(rect)
+            
         for elem in find_cor:
             coord = decoded_coord[elem, :].view(-1)
             anchor = flatten_anchors[elem, :].view(-1)
 
-            col = 'r'
-            rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
-                                     color=col)
-            ax.add_patch(rect)
+#            col = 'r'
+#            rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+#                                     color=col)
+            
+#            ax.add_patch(rect)
             rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
                                      fill=False, color='b')
             ax.add_patch(rect)
@@ -286,6 +301,6 @@ if __name__ == '__main__':
         plt.show()
         saving_file = "anchor_bbox.png"
         plt.savefig(saving_file)
-        break
-#        if (i > 20):
-#            break
+        print("box"+str( boxes[0]))
+        if (idx > 20):
+            break
