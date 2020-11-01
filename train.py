@@ -24,7 +24,7 @@ batch_size = 4
 init_lr = 1e-3
 num_epochs = 60
 milestones = [30, 45, 55]
-loss_ratio = 3
+loss_ratio = 4
 
 # =========================== Logging ==========================
 # w and b login
@@ -65,9 +65,9 @@ rpn_head = RPNHead(device=device).to(device)
 optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr)
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.5)
 
-train_cls_loss = []
-train_reg_loss = []
-train_tot_loss = []
+# train_cls_loss_list = []
+# train_reg_loss_list = []
+# train_tot_loss_list = []
 os.makedirs("checkpoints", exist_ok=True)
 
 # watch with wandb
@@ -75,9 +75,9 @@ if LOGGING == "wandb":
     wandb.watch(rpn_head)
 for epoch in range(num_epochs):
     rpn_head.train()
-    running_cls_loss = 0.0
-    running_reg_loss = 0.0
-    running_tot_loss = 0.0
+    train_cls_loss = 0.0
+    train_reg_loss = 0.0
+    train_tot_loss = 0.0
 
     # ============================== EPOCH START ==================================
     for iter, data in enumerate(tqdm(train_loader), 0):
@@ -86,7 +86,6 @@ for epoch in range(num_epochs):
         # mask_list = [x.to(device) for x in data['masks']]
         bbox_list = [x.to(device) for x in data['bbox']]
         index_list = data['index']
-
         img_shape = (img.shape[2], img.shape[3])
 
         # logits: (bz,1,grid_size[0],grid_size[1])}
@@ -107,26 +106,53 @@ for epoch in range(num_epochs):
             optimizer.step()
 
         # logging
-        running_cls_loss += loss_c.item()
-        running_reg_loss += loss_r.item()
-        running_tot_loss += loss.item()
-        if np.isnan(running_tot_loss):
+        train_cls_loss += loss_c.item()
+        train_reg_loss += loss_r.item()
+        train_tot_loss += loss.item()
+        if np.isnan(train_tot_loss):
             raise RuntimeError("[ERROR] NaN encountered at iter: {}".format(iter))
-
-    # logging per epoch
-    logging_cls_loss = running_cls_loss
-    logging_reg_loss = running_reg_loss
-    logging_tot_loss = running_tot_loss
-    # save to files
-    train_cls_loss.append(logging_cls_loss)
-    train_reg_loss.append(logging_reg_loss)
-    train_tot_loss.append(logging_tot_loss)
-    print('Epoch:{} Sum. train total loss: {:.4f}, loss cls: {}, loss reg: {}'.format(epoch, logging_tot_loss, logging_cls_loss, logging_reg_loss))
-    if LOGGING == "wandb":
-        wandb.log({"train/cls_loss": logging_cls_loss,
-                   "train/reg_loss": logging_reg_loss,
-                   "train/tot_loss": logging_tot_loss})
     # ================================= EPOCH END ==================================
+    # logging per epoch
+    # save to files
+    # train_cls_loss.append(logging_cls_loss)
+    # train_reg_loss.append(logging_reg_loss)
+    # train_tot_loss.append(logging_tot_loss)
+    print('Epoch:{} Sum. train total loss: {:.4f}, loss cls: {}, loss reg: {}'.format(epoch, train_tot_loss, train_cls_loss, train_reg_loss))
+    if LOGGING == "wandb":
+        wandb.log({"train/cls_loss": train_cls_loss,
+                   "train/reg_loss": train_reg_loss,
+                   "train/tot_loss": train_tot_loss}, step=epoch)
+
+    # do validation
+    rpn_head.eval()
+    test_cls_loss = 0.0
+    test_reg_loss = 0.0
+    test_tot_loss = 0.0
+    for iter, data in enumerate(tqdm(test_loader), 0):
+        img = data['images'].to(device)
+        bbox_list = [x.to(device) for x in data['bbox']]
+        index_list = data['index']
+        img_shape = (img.shape[2], img.shape[3])
+        with torch.no_grad():
+            cls_out, reg_out = rpn_head(img)
+            targ_cls, targ_reg = rpn_head.create_batch_truth(bbox_list, index_list, img_shape)
+            loss, loss_c, loss_r = rpn_head.compute_loss(
+                cls_out, reg_out, targ_cls, targ_reg, l=loss_ratio, effective_batch=50)
+            # logging
+            test_cls_loss += loss_c.item()
+            test_reg_loss += loss_r.item()
+            test_tot_loss += loss.item()
+    # logging per epoch
+    print('Epoch:{} Sum. test total loss: {:.4f}, test cls: {}, test reg: {}'.format(epoch, test_tot_loss,
+                                                                                      test_cls_loss,
+                                                                                      test_reg_loss))
+    if LOGGING == "wandb":
+        wandb.log({"test/cls_loss": test_cls_loss,
+                   "test/reg_loss": test_reg_loss,
+                   "test/tot_loss": test_tot_loss}, step=epoch)
+
+
+
     # save checkpoint
     path = 'checkpoints/epoch_' + str(epoch)
     torch.save({
