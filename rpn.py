@@ -220,13 +220,15 @@ class RPNHead(torch.nn.Module):
         positive_inbound_anchor_list.append(iou_high_mask)
         
       iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
-      positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))], device=self.device)
-      temp=torch.squeeze(positive_mask.nonzero(),dim=1)
+      # positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))], device=self.device)
+      positive_mask = torch.sum(torch.stack(positive_inbound_anchor_list), dim=0) != 0
+      temp=torch.squeeze(positive_mask.nonzero(), dim=1)
       positive_idx=(anchor_inbound[temp,0:2].float()/stride-0.5).long()
       positive_idx=torch.index_select(positive_idx, 1, torch.tensor([1,0], dtype=torch.long, device=self.device))
       # print(positive_idx)
-      negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))], device=self.device)
-      temp1=torch.squeeze(negative_mask.nonzero(),dim=1)
+      # negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))], device=self.device)
+      negative_mask = torch.sum(torch.stack(negative_inbound_anchor_list), dim=0) != 0
+      temp1=torch.squeeze(negative_mask.nonzero(), dim=1)
       negative_idx=(anchor_inbound[temp1,0:2].float()/stride-0.5).long()     
       negative_idx=torch.index_select(negative_idx, 1, torch.tensor([1,0], dtype=torch.long, device=self.device))
       # print(negative_idx.shape)
