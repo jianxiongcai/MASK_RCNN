@@ -58,8 +58,8 @@ class BuildDataset(torch.utils.data.Dataset):
         # return transformed images,labels,masks,boxes,index
         ################################
         # images
-        images_h5 = h5py.File(imgs_path, 'r')
-        masks_h5 = h5py.File(masks_path, 'r')
+        images_h5 = h5py.File(self.imgs_path, 'r')
+        masks_h5 = h5py.File(self.masks_path, 'r')
         img_np = images_h5['data'][index] / 255.0  # (3, 300, 400)
         img = torch.tensor(img_np, dtype=torch.float)
 
