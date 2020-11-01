@@ -210,15 +210,6 @@ class RPNHead(torch.nn.Module):
         #####################################################
       stride=self.anchors_param['stride']
       labels=-torch.ones(grid_size[0],grid_size[1], device=self.device).long()
-#      w=anchors[0,0,2]
-#      h=anchors[0,0,3]
-#      anchor_inbound_list=[]
-#      for i in range(grid_size[0]):
-#        for j in range(grid_size[1]):
-#          if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_size[1]-w*0.5 or anchors[i,j,1]>image_size[0]-h*0.5:
-#            continue
-#          anchor_inbound_list.append(anchors[i,j].float())
-#      anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4) i,j,w,h
       num_anchor_inbound=self.anchor_inbound.shape[0]
       anchor_inbound=self.anchor_inbound
       iou_inbound_anchor_list=[]

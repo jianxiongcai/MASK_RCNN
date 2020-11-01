@@ -28,14 +28,14 @@ class BuildDataset(torch.utils.data.Dataset):
 
         # load dataset
         # all images and masks will be lazy read
-#        self.images_h5 = h5py.File(imgs_path, 'r', libver='latest', swmr=True)
-#        self.masks_h5 = h5py.File(masks_path, 'r', libver='latest', swmr=True)
-#        self.labels_all = np.load(labels_path, allow_pickle=True)
-#        self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
-        self.images_h5 = h5py.File(imgs_path, 'r')
-        self.masks_h5 = h5py.File(masks_path, 'r')
+        self.images_h5 = h5py.File(imgs_path, 'r', libver='latest', swmr=True)
+        self.masks_h5 = h5py.File(masks_path, 'r', libver='latest', swmr=True)
         self.labels_all = np.load(labels_path, allow_pickle=True)
         self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
+#        self.images_h5 = h5py.File(imgs_path, 'r')
+#        self.masks_h5 = h5py.File(masks_path, 'r')
+#        self.labels_all = np.load(labels_path, allow_pickle=True)
+#        self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
 
         # As the mask are saved sequentially, compute the mask start index for each images
         n_objects_img = [len(self.labels_all[i]) for i in range(len(self.labels_all))]  # Number of objects per list
