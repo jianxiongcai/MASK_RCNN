@@ -12,10 +12,11 @@ from rpn import RPNHead
 from dataset import BuildDataset, BuildDataLoader
 import wandb
 import time
+from tqdm import tqdm
 
 # w and b login
-LOGGING = ""
-# LOGGING = "wandb"
+# LOGGING = ""
+LOGGING = "wandb"
 if LOGGING == "wandb":
     assert os.system("wandb login $(cat wandb_secret)") == 0
     wandb.init(project="hw4")
@@ -26,6 +27,12 @@ torch.random.manual_seed(1)
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 np.random.seed(0)
+
+# =========================== Config ==========================
+batch_size = 16
+init_lr = 1e-3
+num_epochs = 50
+milestones = [25, 35, 40, 45]
 
 # =========================== Dataset ==============================
 # file path and make a list
@@ -41,7 +48,6 @@ test_size = len(dataset) - train_size
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
 # dataset
-batch_size = 2
 train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
 train_loader = train_build_loader.loader()
 test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
@@ -50,9 +56,8 @@ test_loader = test_build_loader.loader()
 # ============================ Train ================================
 # todo (jianxiong): anchors_param need to set?
 rpn_head = RPNHead(device=device).to(device)
-num_epochs = 50
-optimizer = optim.Adam(rpn_head.parameters(), lr=0.01/16*batch_size)
-scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[27,33], gamma=0.1)
+optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr)
+scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.5)
 
 train_cls_loss = []
 train_reg_loss = []
@@ -69,7 +74,7 @@ for epoch in range(num_epochs):
     running_tot_loss = 0.0
 
     # ============================== EPOCH START ==================================
-    for iter, data in enumerate(train_loader, 0):
+    for iter, data in enumerate(tqdm(train_loader), 0):
         img = data['images'].to(device)
         label_list = [x.to(device) for x in data['labels']]
         mask_list = [x.to(device) for x in data['masks']]
@@ -84,8 +89,9 @@ for epoch in range(num_epochs):
         targ_cls, targ_reg = rpn_head.create_batch_truth(bbox_list, index_list, img_shape)
 
         # compute loss and optimize
+        # set l = 4, the raw regression loss is normalized for each bounding box coordinate
         loss, loss_c, loss_r = rpn_head.compute_loss(
-            cls_out, reg_out, targ_cls, targ_reg, l=1, effective_batch=50)
+            cls_out, reg_out, targ_cls, targ_reg, l=4, effective_batch=50)
         loss.backward()
         optimizer.step()
 
@@ -95,11 +101,11 @@ for epoch in range(num_epochs):
         running_tot_loss += loss.item()
         if np.isnan(running_tot_loss):
             raise RuntimeError("[ERROR] NaN encountered at iter: {}".format(iter))
-        if iter % 100 == 99:
+        if iter % 30 == 29:
             # logging per 100 iterations
-            logging_cls_loss = running_cls_loss / 100.0
-            logging_reg_loss = running_reg_loss / 100.0
-            logging_tot_loss = running_tot_loss / 100.0
+            logging_cls_loss = running_cls_loss / 30.0
+            logging_reg_loss = running_reg_loss / 30.0
+            logging_tot_loss = running_tot_loss / 30.0
             # save to files
             train_cls_loss.append(logging_cls_loss)
             train_reg_loss.append(logging_reg_loss)
