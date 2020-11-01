@@ -1,15 +1,17 @@
+import h5py
+
 import torch
 from torchvision import transforms
 import torchvision.transforms.functional
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-import h5py
 import numpy as np
 from utils import *
 import matplotlib.pyplot as plt
 from rpn import *
 import matplotlib.patches as patches
 import os
+from tqdm import tqdm
 
 
 class BuildDataset(torch.utils.data.Dataset):
@@ -25,11 +27,15 @@ class BuildDataset(torch.utils.data.Dataset):
         self.augmentation = augmentation
         # all files
         imgs_path, masks_path, labels_path, bboxes_path = path
+        self.imgs_path = imgs_path
+        self.masks_path = masks_path
+
+        # get dataset length
+        with h5py.File(self.imgs_path, 'r') as images_h5:
+            self.N_images = images_h5['data'].shape[0]
 
         # load dataset
         # all images and masks will be lazy read
-        self.images_h5 = h5py.File(imgs_path, 'r', libver='latest', swmr=True)
-        self.masks_h5 = h5py.File(masks_path, 'r', libver='latest', swmr=True)
         self.labels_all = np.load(labels_path, allow_pickle=True)
         self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
 
@@ -52,7 +58,9 @@ class BuildDataset(torch.utils.data.Dataset):
         # return transformed images,labels,masks,boxes,index
         ################################
         # images
-        img_np = self.images_h5['data'][index] / 255.0  # (3, 300, 400)
+        images_h5 = h5py.File(imgs_path, 'r')
+        masks_h5 = h5py.File(masks_path, 'r')
+        img_np = images_h5['data'][index] / 255.0  # (3, 300, 400)
         img = torch.tensor(img_np, dtype=torch.float)
 
         # annotation
@@ -63,7 +71,7 @@ class BuildDataset(torch.utils.data.Dataset):
         mask_list = []
         for i in range(len(label)):
             # get the mask of the ith object in the image
-            mask_np = self.masks_h5['data'][mask_offset_s + i] * 1.0
+            mask_np = masks_h5['data'][mask_offset_s + i] * 1.0
             mask_tmp = torch.tensor(mask_np, dtype=torch.float)
             mask_list.append(mask_tmp)
         # (n_obj, 300, 400)
@@ -77,14 +85,14 @@ class BuildDataset(torch.utils.data.Dataset):
         assert transed_img.shape == (3, 800, 1088)
         assert transed_bbox.shape[0] == transed_mask.shape[0]
 
-        # for synthesized image, index is assigned a new one (unique id)
-        index += self.images_h5['data'].shape[0]
+        # close files
+        images_h5.close()
+        masks_h5.close()
 
         return transed_img, label, transed_mask, transed_bbox, index
 
     def __len__(self):
-        # return len(self.imgs_data)
-        return self.images_h5['data'].shape[0]
+        return self.N_images
 
     # This function preprocess the given image, mask, box by rescaling them appropriately
     # output:
@@ -134,7 +142,7 @@ class BuildDataset(torch.utils.data.Dataset):
             ret_bbox = trans_bbox.clone()
             ret_bbox[:, 0] = 1088.0 - ret_bbox[:, 0]
             # for aug, create a unique index for unique identification
-            index = index + self.images_h5['data'].shape[0]
+            index = index + self.N_images
         else:
             ret_img = img
             ret_mask = mask
@@ -244,19 +252,19 @@ if __name__ == '__main__':
     # random split the dataset into training and testset
   
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-    rpn_net = RPNHead()
+    rpn_net = RPNHead(device=torch.device('cpu'))
 #     push the randomized training data into the dataloader
 #
 #     train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
 #     test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
     batch_size = 2
-    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
     train_loader = train_build_loader.loader()
-    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
     test_loader = test_build_loader.loader()
 
     
-    for idx, batch in enumerate(train_loader, 0):
+    for idx, batch in enumerate(tqdm(train_loader), 0):
         images = batch['images'][:, :, :, :]
         indexes = batch['index']
         boxes = batch['bbox']
@@ -272,14 +280,14 @@ if __name__ == '__main__':
 
         find_cor_bz = (flatten_gt == 1).nonzero()
         find_neg_bz = (flatten_gt == -1).nonzero()
-                   
+
         batch_size=len(boxes)
         total_number_of_anchors=gt.shape[2]*gt.shape[3]
         num_cor_bz = find_cor_bz.shape[0]
         for i in range(batch_size):
             image = transforms.functional.normalize(images[i],
                                          [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-                                         [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)          
+                                         [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
             fig, ax = plt.subplots(1, 1)
             ax.imshow(image.permute(1, 2, 0))
             mask = [torch.rand(num_cor_bz)>0.5 for x in range(2)]
@@ -295,12 +303,12 @@ if __name__ == '__main__':
                 col = 'r'
                 rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
                                          color=col)
-                
+
                 ax.add_patch(rect)
                 rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
                                          fill=False, color='b')
                 ax.add_patch(rect)
-              
+
             plt.savefig("./grndbox/visualtrainset_{}_{}_.png".format(idx, i))
             plt.show()
 
