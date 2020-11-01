@@ -13,7 +13,7 @@ import torch.utils.data
 import torch.optim as optim
 import numpy as np
 import wandb
-from tqdm import tqdm
+# from tqdm import tqdm
 
 # w and b login
 # LOGGING = ""
@@ -31,9 +31,9 @@ np.random.seed(0)
 
 # =========================== Config ==========================
 batch_size = 16
-init_lr = 1e-3
-num_epochs = 50
-milestones = [25, 35, 40, 45]
+init_lr = 0.01
+num_epochs = 60
+milestones = [30, 45, 55]
 
 # =========================== Dataset ==============================
 # file path and make a list
@@ -57,7 +57,7 @@ test_loader = test_build_loader.loader()
 # ============================ Train ================================
 # todo (jianxiong): anchors_param need to set?
 rpn_head = RPNHead(device=device).to(device)
-optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr)
+optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr, weight_decay=0.0001)
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.5)
 
 train_cls_loss = []
@@ -75,7 +75,7 @@ for epoch in range(num_epochs):
     running_tot_loss = 0.0
 
     # ============================== EPOCH START ==================================
-    for iter, data in enumerate(tqdm(train_loader), 0):
+    for iter, data in enumerate(train_loader, 0):
         img = data['images'].to(device)
         label_list = [x.to(device) for x in data['labels']]
         mask_list = [x.to(device) for x in data['masks']]
@@ -102,23 +102,20 @@ for epoch in range(num_epochs):
         running_tot_loss += loss.item()
         if np.isnan(running_tot_loss):
             raise RuntimeError("[ERROR] NaN encountered at iter: {}".format(iter))
-        if iter % 30 == 29:
-            # logging per 100 iterations
-            logging_cls_loss = running_cls_loss / 30.0
-            logging_reg_loss = running_reg_loss / 30.0
-            logging_tot_loss = running_tot_loss / 30.0
-            # save to files
-            train_cls_loss.append(logging_cls_loss)
-            train_reg_loss.append(logging_reg_loss)
-            train_tot_loss.append(logging_tot_loss)
-            print('\nIteration:{} Avg. train total loss: {:.4f}'.format(iter + 1, logging_tot_loss))
-            if LOGGING == "wandb":
-                wandb.log({"train/cls_loss": logging_cls_loss,
-                           "train/reg_loss": logging_reg_loss,
-                           "train/tot_loss": logging_tot_loss})
-            running_cls_loss = 0.0
-            running_reg_loss = 0.0
-            running_tot_loss = 0.0
+
+    # logging per epoch
+    logging_cls_loss = running_cls_loss
+    logging_reg_loss = running_reg_loss
+    logging_tot_loss = running_tot_loss
+    # save to files
+    train_cls_loss.append(logging_cls_loss)
+    train_reg_loss.append(logging_reg_loss)
+    train_tot_loss.append(logging_tot_loss)
+    print('Epoch:{} Sum. train total loss: {:.4f}'.format(epoch + 1, logging_tot_loss))
+    if LOGGING == "wandb":
+        wandb.log({"train/cls_loss": logging_cls_loss,
+                   "train/reg_loss": logging_reg_loss,
+                   "train/tot_loss": logging_tot_loss})
     # ================================= EPOCH END ==================================
     # save checkpoint
     path = 'checkpoints/epoch_' + str(epoch)

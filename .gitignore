@@ -9,4 +9,5 @@
 
 HW4_TestCases/
 data/
-wandb
+wandb/
+checkpoints/
