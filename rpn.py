@@ -348,6 +348,8 @@ class RPNHead(torch.nn.Module):
             pos_indice_keep = np.random.choice(pos_cord_all.shape[0], N_pos)
             pos_cord_keep = pos_cord_all[pos_indice_keep, :]        # (N_pos, 3)
         else:               # skip positive sampling, update N_pos / N_neg
+            print("[INFO] Not enough samples for positive sampling. Expected: {}, Actual: {}".format(
+                N_pos, pos_cord_all.shape[0]))
             pos_cord_keep = pos_cord_all
             N_pos = pos_cord_keep.shape[0]
             N_neg = effective_batch - N_pos
@@ -361,6 +363,8 @@ class RPNHead(torch.nn.Module):
         neg_cord_keep = neg_cord_all[neg_indice_keep, :]            # (N_neg, 3)
 
         # sampling (fetching values)
+        # assert torch.all(targ_cls[pos_cord_keep[:, 0], 0, pos_cord_keep[:, 1], pos_cord_keep[:, 2]] == 1)
+        # assert torch.all(targ_cls[neg_cord_keep[:, 0], 0, neg_cord_keep[:, 1], neg_cord_keep[:, 2]] == 0)
         p_out = cls_out[pos_cord_keep[:, 0], 0, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]
         n_out = cls_out[neg_cord_keep[:, 0], 0, neg_cord_keep[:, 1], neg_cord_keep[:, 2]]
         pos_out_r = reg_out[pos_cord_keep[:, 0], :, pos_cord_keep[:, 1], pos_cord_keep[:, 2]]

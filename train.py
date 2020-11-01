@@ -5,23 +5,13 @@ Training Main
 from dataset import BuildDataset, BuildDataLoader
 from rpn import RPNHead
 
-import os
 import os.path
-import torch
 import torch.backends.cudnn
 import torch.utils.data
 import torch.optim as optim
 import numpy as np
 import wandb
-# from tqdm import tqdm
-
-# w and b login
-# LOGGING = ""
-LOGGING = "wandb"
-if LOGGING == "wandb":
-    assert os.system("wandb login $(cat wandb_secret)") == 0
-    wandb.init(project="hw4")
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+from tqdm import tqdm
 
 #reproductivity
 torch.random.manual_seed(1)
@@ -30,10 +20,26 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(0)
 
 # =========================== Config ==========================
-batch_size = 16
-init_lr = 0.01
+batch_size = 4
+init_lr = 1e-3
 num_epochs = 60
 milestones = [30, 45, 55]
+loss_ratio = 3
+
+# =========================== Logging ==========================
+# w and b login
+# LOGGING = ""
+LOGGING = "wandb"
+if LOGGING == "wandb":
+    assert os.system("wandb login $(cat wandb_secret)") == 0
+    wandb.init(project="hw4")
+    wandb.config.update({
+        'batch_size': batch_size,
+        'init_lr': init_lr,
+        'num_epochs': num_epochs,
+        'loss_ratio': loss_ratio
+    })
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 # =========================== Dataset ==============================
 # file path and make a list
@@ -55,9 +61,8 @@ test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle
 test_loader = test_build_loader.loader()
 
 # ============================ Train ================================
-# todo (jianxiong): anchors_param need to set?
 rpn_head = RPNHead(device=device).to(device)
-optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr, weight_decay=0.0001)
+optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr)
 scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.5)
 
 train_cls_loss = []
@@ -75,10 +80,10 @@ for epoch in range(num_epochs):
     running_tot_loss = 0.0
 
     # ============================== EPOCH START ==================================
-    for iter, data in enumerate(train_loader, 0):
+    for iter, data in enumerate(tqdm(train_loader), 0):
         img = data['images'].to(device)
-        label_list = [x.to(device) for x in data['labels']]
-        mask_list = [x.to(device) for x in data['masks']]
+        # label_list = [x.to(device) for x in data['labels']]
+        # mask_list = [x.to(device) for x in data['masks']]
         bbox_list = [x.to(device) for x in data['bbox']]
         index_list = data['index']
 
@@ -86,15 +91,20 @@ for epoch in range(num_epochs):
 
         # logits: (bz,1,grid_size[0],grid_size[1])}
         # bbox_regs: (bz,4, grid_size[0],grid_size[1])}
+        optimizer.zero_grad()
         cls_out, reg_out = rpn_head(img)
+        del img
         targ_cls, targ_reg = rpn_head.create_batch_truth(bbox_list, index_list, img_shape)
+        del data, bbox_list, index_list
 
         # compute loss and optimize
         # set l = 4, the raw regression loss is normalized for each bounding box coordinate
         loss, loss_c, loss_r = rpn_head.compute_loss(
-            cls_out, reg_out, targ_cls, targ_reg, l=4, effective_batch=50)
-        loss.backward()
-        optimizer.step()
+            cls_out, reg_out, targ_cls, targ_reg, l=loss_ratio, effective_batch=50)
+
+        if epoch != 0:          # epoch 0 is reference epoch
+            loss.backward()
+            optimizer.step()
 
         # logging
         running_cls_loss += loss_c.item()
@@ -111,7 +121,7 @@ for epoch in range(num_epochs):
     train_cls_loss.append(logging_cls_loss)
     train_reg_loss.append(logging_reg_loss)
     train_tot_loss.append(logging_tot_loss)
-    print('Epoch:{} Sum. train total loss: {:.4f}'.format(epoch + 1, logging_tot_loss))
+    print('Epoch:{} Sum. train total loss: {:.4f}, loss cls: {}, loss reg: {}'.format(epoch, logging_tot_loss, logging_cls_loss, logging_reg_loss))
     if LOGGING == "wandb":
         wandb.log({"train/cls_loss": logging_cls_loss,
                    "train/reg_loss": logging_reg_loss,
@@ -124,4 +134,5 @@ for epoch in range(num_epochs):
         'model_state_dict': rpn_head.state_dict(),
         'optimizer_state_dict': optimizer.state_dict()
     }, path)
-    scheduler.step()
+    if epoch != 0:
+        scheduler.step()
