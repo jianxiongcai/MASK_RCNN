@@ -118,13 +118,14 @@ class RPNHead(torch.nn.Module):
         ######################################
         # TODO create anchors
         ######################################
-        h_2=torch.tensor(scale**2/aspect_ratio,dtype=float)
+        h_2=torch.tensor(scale**2/aspect_ratio, dtype=torch.float, device=self.device)
         h=torch.round(torch.sqrt(h_2)).long()
         w=torch.round(aspect_ratio*h.float()).long()
-        anchors=torch.zeros(grid_sizes[0],grid_sizes[1],4).long()
+        anchors=torch.zeros(grid_sizes[0],grid_sizes[1],4, device=self.device, dtype=torch.long)
         x=torch.arange(grid_sizes[0])
         y=torch.arange(grid_sizes[1])
-        xx,yy=torch.meshgrid(x,y)
+        xx, yy=torch.meshgrid(x,y)
+        xx, yy = xx.to(self.device), yy.to(self.device)
         anchors[xx,yy,0]=((yy+0.5)*stride).long()
         anchors[xx,yy,1]=((xx+0.5)*stride).long()
         anchors[xx,yy,2]=w
@@ -156,8 +157,8 @@ class RPNHead(torch.nn.Module):
         #####################################
         bz=len(bboxes_list)
         grid_size=(self.anchors_param['grid_size'][0],self.anchors_param['grid_size'][1])
-        ground_class=torch.zeros(bz,1,grid_size[0],grid_size[1])
-        ground_coord=torch.zeros(bz,4,grid_size[0],grid_size[1])
+        ground_class=torch.zeros(bz,1,grid_size[0],grid_size[1], device=self.device)
+        ground_coord=torch.zeros(bz,4,grid_size[0],grid_size[1], device=self.device)
         for idx in range(bz):
             ground_class[idx,:,:,:],ground_coord[idx,:,:,:]=self.create_ground_truth(bboxes_list[idx], indexes[idx], grid_size, self.anchors, image_shape)
 
@@ -189,7 +190,7 @@ class RPNHead(torch.nn.Module):
         # TODO create ground truth for a single image
         #####################################################
       stride=self.anchors_param['stride']
-      labels=-torch.ones(grid_size[0],grid_size[1]).long()
+      labels=-torch.ones(grid_size[0],grid_size[1], device=self.device).long()
       w=anchors[0,0,2]
       h=anchors[0,0,3]
       anchor_inbound_list=[]
@@ -219,16 +220,16 @@ class RPNHead(torch.nn.Module):
         positive_inbound_anchor_list.append(iou_high_mask)
         
       iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
-      positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))])
+      positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))], device=self.device)
       temp=torch.squeeze(positive_mask.nonzero(),dim=1)
       positive_idx=(anchor_inbound[temp,0:2].float()/stride-0.5).long()
-      positive_idx=torch.index_select(positive_idx, 1, torch.LongTensor([1,0]))
-      print(positive_idx)
-      negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))])
+      positive_idx=torch.index_select(positive_idx, 1, torch.tensor([1,0], dtype=torch.long, device=self.device))
+      # print(positive_idx)
+      negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))], device=self.device)
       temp1=torch.squeeze(negative_mask.nonzero(),dim=1)
       negative_idx=(anchor_inbound[temp1,0:2].float()/stride-0.5).long()     
-      negative_idx=torch.index_select(negative_idx, 1, torch.LongTensor([1,0]))
-      print(negative_idx.shape)
+      negative_idx=torch.index_select(negative_idx, 1, torch.tensor([1,0], dtype=torch.long, device=self.device))
+      # print(negative_idx.shape)
       highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)     
       labels[negative_idx[:,0],negative_idx[:,1]]=0
       labels[positive_idx[:,0],positive_idx[:,1]]=1
@@ -246,7 +247,7 @@ class RPNHead(torch.nn.Module):
       w_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][2,:].float()
       h_a=ground_coord_orig[:,positive_idx[:,0],positive_idx[:,1]][3,:].float()
       
-      ground_coord=torch.zeros(4,grid_size[0],grid_size[1])
+      ground_coord=torch.zeros(4,grid_size[0],grid_size[1], device=self.device)
       
       ground_coord[0,positive_idx[:,0],positive_idx[:,1]]=(bbox_x-x_a)/(w_a+1e-9)
       ground_coord[1,positive_idx[:,0],positive_idx[:,1]]=(bbox_y-y_a)/(h_a+1e-9)
@@ -275,7 +276,7 @@ class RPNHead(torch.nn.Module):
         sum_count = N_pos + N_neg
 
         pred = torch.cat([p_out, n_out])
-        gt = torch.cat([torch.ones(N_pos), torch.zeros(N_neg)])
+        gt = torch.cat([torch.ones(N_pos, device=self.device), torch.zeros(N_neg, device=self.device)])
         loss = cls_loss(pred, gt)
 
         return loss,sum_count
