@@ -38,6 +38,10 @@ class BuildDataset(torch.utils.data.Dataset):
         # all images and masks will be lazy read
         self.labels_all = np.load(labels_path, allow_pickle=True)
         self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
+#        self.images_h5 = h5py.File(imgs_path, 'r')
+#        self.masks_h5 = h5py.File(masks_path, 'r')
+#        self.labels_all = np.load(labels_path, allow_pickle=True)
+#        self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
 
         # As the mask are saved sequentially, compute the mask start index for each images
         n_objects_img = [len(self.labels_all[i]) for i in range(len(self.labels_all))]  # Number of objects per list
@@ -250,7 +254,7 @@ if __name__ == '__main__':
     train_size = int(full_size * 0.8)
     test_size = full_size - train_size
     # random split the dataset into training and testset
-  
+
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     rpn_net = RPNHead(device=torch.device('cpu'))
 #     push the randomized training data into the dataloader
@@ -263,7 +267,7 @@ if __name__ == '__main__':
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
     test_loader = test_build_loader.loader()
 
-    
+
     for idx, batch in enumerate(tqdm(train_loader), 0):
         images = batch['images'][:, :, :, :]
         indexes = batch['index']
