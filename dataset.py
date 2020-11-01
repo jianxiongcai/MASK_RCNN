@@ -312,5 +312,5 @@ if __name__ == '__main__':
             plt.savefig("./grndbox/visualtrainset_{}_{}_.png".format(idx, i))
             plt.show()
 
-        if (idx > 15):
+        if (idx > 5):
             break
