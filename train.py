@@ -1,6 +1,10 @@
 """
 Training Main
 """
+
+from dataset import BuildDataset, BuildDataLoader
+from rpn import RPNHead
+
 import os
 import os.path
 import torch
@@ -8,10 +12,7 @@ import torch.backends.cudnn
 import torch.utils.data
 import torch.optim as optim
 import numpy as np
-from rpn import RPNHead
-from dataset import BuildDataset, BuildDataLoader
 import wandb
-import time
 from tqdm import tqdm
 
 # w and b login
@@ -48,9 +49,9 @@ test_size = len(dataset) - train_size
 train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
 
 # dataset
-train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
 train_loader = train_build_loader.loader()
-test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
 test_loader = test_build_loader.loader()
 
 # ============================ Train ================================
