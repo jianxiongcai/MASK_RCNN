@@ -16,11 +16,13 @@ gc.enable()
 
 class RPNHead(torch.nn.Module):
 
-    def __init__(self,  device='cuda', anchors_param=dict(ratio=1,scale= 256, grid_size=(50, 68), stride=16)):
+    def __init__(self,  device='cuda', anchors_param=dict(ratio=1.01,scale= 403, grid_size=(50, 68), stride=16)):
         # Initialize the backbone, intermediate layer clasifier and regressor heads of the RPN
         super(RPNHead,self).__init__()
 
         self.device=device
+        
+
         # Define Backbone
         self.backbone = nn.Sequential(nn.Conv2d(3, 16, 5, padding=2),           # Block 1
                                       nn.BatchNorm2d(16),
@@ -61,6 +63,7 @@ class RPNHead(torch.nn.Module):
         self.anchors_param=anchors_param
         self.anchors=self.create_anchors(self.anchors_param['ratio'],self.anchors_param['scale'],self.anchors_param['grid_size'],self.anchors_param['stride'])
         self.ground_dict={}
+        self.anchor_inbound=self.create_anchor_inbound(self.anchors_param['grid_size'], image_shape=(800,1088))
 
 
 
@@ -73,6 +76,7 @@ class RPNHead(torch.nn.Module):
     #       logits: (bz,1,grid_size[0],grid_size[1])}
     #       bbox_regs: (bz,4, grid_size[0],grid_size[1])}
     # Note: bbox_regs is not raw bounding box coordinates
+    
     def forward(self, X):
 
         # forward through the Backbone
@@ -111,9 +115,24 @@ class RPNHead(torch.nn.Module):
 
 
 
+
+    def create_anchor_inbound(self, grid_size, image_shape):
+        anchors=self.anchors
+        w=anchors[0,0,2]
+        h=anchors[0,0,3]
+        anchor_inbound_list=[]
+        for i in range(grid_size[0]):
+            for j in range(grid_size[1]):
+                if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_shape[1]-w*0.5 or anchors[i,j,1]>image_shape[0]-h*0.5:
+                    continue
+                anchor_inbound_list.append(anchors[i,j].float())
+        anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4) i,j,w,h
+        return anchor_inbound
+    
     # This function creates the anchor boxes
     # Output:
     #       anchors: (grid_size[0],grid_size[1],4)
+    
     def create_anchors(self, aspect_ratio, scale, grid_sizes, stride):
         ######################################
         # TODO create anchors
@@ -191,16 +210,17 @@ class RPNHead(torch.nn.Module):
         #####################################################
       stride=self.anchors_param['stride']
       labels=-torch.ones(grid_size[0],grid_size[1], device=self.device).long()
-      w=anchors[0,0,2]
-      h=anchors[0,0,3]
-      anchor_inbound_list=[]
-      for i in range(grid_size[0]):
-        for j in range(grid_size[1]):
-          if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_size[1]-w*0.5 or anchors[i,j,1]>image_size[0]-h*0.5:
-            continue
-          anchor_inbound_list.append(anchors[i,j].float())
-      anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4) i,j,w,h
-      num_anchor_inbound=anchor_inbound.shape[0]
+#      w=anchors[0,0,2]
+#      h=anchors[0,0,3]
+#      anchor_inbound_list=[]
+#      for i in range(grid_size[0]):
+#        for j in range(grid_size[1]):
+#          if anchors[i,j,0]<w*0.5 or anchors[i,j,1]<h*0.5 or anchors[i,j,0]>image_size[1]-w*0.5 or anchors[i,j,1]>image_size[0]-h*0.5:
+#            continue
+#          anchor_inbound_list.append(anchors[i,j].float())
+#      anchor_inbound=torch.stack(anchor_inbound_list) #(1800,4) i,j,w,h
+      num_anchor_inbound=self.anchor_inbound.shape[0]
+      anchor_inbound=self.anchor_inbound
       iou_inbound_anchor_list=[]
       positive_inbound_anchor_list=[]
       negative_inbound_anchor_list=[]
@@ -215,7 +235,9 @@ class RPNHead(torch.nn.Module):
         negative_inbound_anchor_list.append(iou_low_mask)
         
         iou_high_mask=(iou>0.7)
-        max_iou_idx=torch.argmax(iou)
+        max_iou=torch.max(iou)
+        max_iou_idx=(iou>0.99*max_iou).nonzero()
+#        max_iou_idx=torch.argmax(iou)
         iou_high_mask[max_iou_idx]=True
         positive_inbound_anchor_list.append(iou_high_mask)
         

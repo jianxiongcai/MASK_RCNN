@@ -28,8 +28,12 @@ class BuildDataset(torch.utils.data.Dataset):
 
         # load dataset
         # all images and masks will be lazy read
-        self.images_h5 = h5py.File(imgs_path, 'r', libver='latest', swmr=True)
-        self.masks_h5 = h5py.File(masks_path, 'r', libver='latest', swmr=True)
+#        self.images_h5 = h5py.File(imgs_path, 'r', libver='latest', swmr=True)
+#        self.masks_h5 = h5py.File(masks_path, 'r', libver='latest', swmr=True)
+#        self.labels_all = np.load(labels_path, allow_pickle=True)
+#        self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
+        self.images_h5 = h5py.File(imgs_path, 'r')
+        self.masks_h5 = h5py.File(masks_path, 'r')
         self.labels_all = np.load(labels_path, allow_pickle=True)
         self.bboxes_all = np.load(bboxes_path, allow_pickle=True)
 
@@ -304,5 +308,5 @@ if __name__ == '__main__':
             plt.savefig("./grndbox/visualtrainset_{}_{}_.png".format(idx, i))
             plt.show()
 
-        if (idx > 15):
+        if (idx > 5):
             break
