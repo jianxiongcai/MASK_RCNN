@@ -20,13 +20,22 @@ torch.backends.cudnn.benchmark = False
 np.random.seed(0)
 
 # =========================== Config ==========================
-batch_size = 4
+batch_size = 6
 init_lr = 1e-3
-num_epochs = 60
-milestones = [30, 45, 55]
+num_epochs = 70
+milestones = [40, 55]
 loss_ratio = 4
+RESULT_DIR = "checkpoints"
 
 # =========================== Logging ==========================
+def log(mode, logging_cls_loss, logging_reg_loss, logging_tot_loss, LOGGING):
+    print('Epoch:{} Sum. {} total loss: {:.4f}, loss cls: {}, loss reg: {}'.format(mode, epoch, logging_tot_loss,
+                                                                                      logging_cls_loss, logging_reg_loss))
+    if LOGGING == "wandb":
+        wandb.log({"{}/cls_loss".format(mode): logging_cls_loss,
+                   "{}/reg_loss".format(mode): logging_reg_loss,
+                   "{}/tot_loss".format(mode): logging_tot_loss}, step=epoch)
+
 # w and b login
 # LOGGING = ""
 LOGGING = "wandb"
@@ -39,7 +48,7 @@ if LOGGING == "wandb":
         'num_epochs': num_epochs,
         'loss_ratio': loss_ratio
     })
-device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 # =========================== Dataset ==============================
 # file path and make a list
@@ -63,12 +72,12 @@ test_loader = test_build_loader.loader()
 # ============================ Train ================================
 rpn_head = RPNHead(device=device).to(device)
 optimizer = optim.Adam(rpn_head.parameters(), lr=init_lr)
-scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.5)
+scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.1)
 
 # train_cls_loss_list = []
 # train_reg_loss_list = []
 # train_tot_loss_list = []
-os.makedirs("checkpoints", exist_ok=True)
+os.makedirs(RESULT_DIR, exist_ok=True)
 
 # watch with wandb
 if LOGGING == "wandb":
@@ -92,9 +101,9 @@ for epoch in range(num_epochs):
         # bbox_regs: (bz,4, grid_size[0],grid_size[1])}
         optimizer.zero_grad()
         cls_out, reg_out = rpn_head(img)
-        del img
+        # del img
         targ_cls, targ_reg = rpn_head.create_batch_truth(bbox_list, index_list, img_shape)
-        del data, bbox_list, index_list
+        # del data, bbox_list, index_list
 
         # compute loss and optimize
         # set l = 4, the raw regression loss is normalized for each bounding box coordinate
@@ -114,14 +123,8 @@ for epoch in range(num_epochs):
     # ================================= EPOCH END ==================================
     # logging per epoch
     # save to files
-    # train_cls_loss.append(logging_cls_loss)
-    # train_reg_loss.append(logging_reg_loss)
-    # train_tot_loss.append(logging_tot_loss)
-    print('Epoch:{} Sum. train total loss: {:.4f}, loss cls: {}, loss reg: {}'.format(epoch, train_tot_loss, train_cls_loss, train_reg_loss))
-    if LOGGING == "wandb":
-        wandb.log({"train/cls_loss": train_cls_loss,
-                   "train/reg_loss": train_reg_loss,
-                   "train/tot_loss": train_tot_loss}, step=epoch)
+    log("train", train_cls_loss / len(train_loader), train_reg_loss / len(train_loader),
+        train_tot_loss / len(train_loader), LOGGING=LOGGING)
 
     # do validation
     rpn_head.eval()
@@ -143,18 +146,11 @@ for epoch in range(num_epochs):
             test_reg_loss += loss_r.item()
             test_tot_loss += loss.item()
     # logging per epoch
-    print('Epoch:{} Sum. test total loss: {:.4f}, test cls: {}, test reg: {}'.format(epoch, test_tot_loss,
-                                                                                      test_cls_loss,
-                                                                                      test_reg_loss))
-    if LOGGING == "wandb":
-        wandb.log({"test/cls_loss": test_cls_loss,
-                   "test/reg_loss": test_reg_loss,
-                   "test/tot_loss": test_tot_loss}, step=epoch)
-
-
+    log("test", test_cls_loss/len(test_loader), test_reg_loss/len(test_loader),
+        test_tot_loss / len(test_loader), LOGGING=LOGGING)
 
     # save checkpoint
-    path = 'checkpoints/epoch_' + str(epoch)
+    path = '{}/epoch_{}'.format(RESULT_DIR, epoch)
     torch.save({
         'epoch': epoch,
         'model_state_dict': rpn_head.state_dict(),
