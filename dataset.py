@@ -233,6 +233,73 @@ class BuildDataLoader(torch.utils.data.DataLoader):
                           collate_fn=self.collect_fn)
 
 
+def plot_mask_batch(rpn_net, cls_out, reg_out, images, boxes, indice, result_dir, top_K = None):
+    """
+
+    :param rpn_net:
+    :param cls_out: the classification output (/gt)
+    :param reg_out: the regression output (/ground_coord)
+    :param boxes: input bounding boxes
+    :param images: input images
+    :param top_K: if None, use (flatten_cls == 1) as the conditional for visualization
+    :return:
+    """
+    # Flatten the ground truth and the anchors
+    flatten_coord, flatten_cls, flatten_anchors = output_flattening(reg_out, cls_out, rpn_net.get_anchors())
+
+    # Decode the ground truth box to get the upper left and lower right corners of the ground truth boxes
+    decoded_coord = output_decoding(flatten_coord, flatten_anchors)
+
+    # Plot the image and the anchor boxes with the positive labels and their corresponding ground truth box
+    if top_K is None:
+        find_cor_bz = (flatten_cls == 1).nonzero()
+    else:
+        # only keep top K (here we get all positive bboxes)
+        find_cor_bz = (flatten_cls > 0.5).nonzero()
+    find_cor_bz = find_cor_bz.squeeze(dim=1)
+
+
+    batch_size = len(boxes)
+    total_number_of_anchors = cls_out.shape[2] * cls_out.shape[3]
+    for i in range(batch_size):
+        image = transforms.functional.normalize(images[i],
+                                                [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                                                [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
+        fig, ax = plt.subplots(1, 1)
+        image_vis = image.permute(1, 2, 0).cpu().detach().numpy()
+        ax.imshow(image_vis)
+        # mask = [torch.rand(num_cor_bz)>0.5 for x in range(2)]
+
+        mask1 = (find_cor_bz > i * total_number_of_anchors).flatten()
+        mask2 = (find_cor_bz < (i + 1) * total_number_of_anchors).flatten()
+        mask = torch.logical_and(mask1, mask2)
+        find_cor = find_cor_bz[mask]
+
+        # only keep top_K for at inference stage
+        if (top_K is not None) and (top_K < len(find_cor)):
+            scores = flatten_cls[find_cor]
+            _, keep_indice = torch.topk(scores, top_K)
+            find_cor = find_cor[keep_indice]
+
+        for elem in find_cor:
+            coord = decoded_coord[elem, :].view(-1)
+            anchor = flatten_anchors[elem, :].view(-1)
+            coord = coord.cpu().detach().numpy()
+            anchor = anchor.cpu().detach().numpy()
+            col = 'r'
+            rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                     color=col)
+
+            ax.add_patch(rect)
+            rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
+                                     fill=False, color='b')
+            ax.add_patch(rect)
+
+        plt.savefig("{}/{}.png".format(result_dir, indice[i]))
+        plt.show()
+        plt.close('all')
+
+
 if __name__ == '__main__':
     # file path and make a list
     imgs_path = 'data/hw3_mycocodata_img_comp_zlib.h5'
@@ -240,7 +307,8 @@ if __name__ == '__main__':
     labels_path = 'data/hw3_mycocodata_labels_comp_zlib.npy'
     bboxes_path = 'data/hw3_mycocodata_bboxes_comp_zlib.npy'
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
-    os.makedirs("grndbox", exist_ok=True)
+    result_dir = "grndbox"
+    os.makedirs(result_dir, exist_ok=True)
     # load the data into data.Dataset
     torch.random.manual_seed(1)
     torch.backends.cudnn.deterministic = True
@@ -262,9 +330,9 @@ if __name__ == '__main__':
 #     train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=0)
 #     test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, num_workers=0)
     batch_size = 2
-    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+    train_build_loader = BuildDataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
     train_loader = train_build_loader.loader()
-    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
+    test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader = test_build_loader.loader()
 
 
@@ -273,48 +341,7 @@ if __name__ == '__main__':
         indexes = batch['index']
         boxes = batch['bbox']
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
-
-        # Flatten the ground truth and the anchors
-        flatten_coord, flatten_gt, flatten_anchors = output_flattening(ground_coord, gt, rpn_net.get_anchors())
-
-        # Decode the ground truth box to get the upper left and lower right corners of the ground truth boxes
-        decoded_coord = output_decoding(flatten_coord, flatten_anchors)
-
-        # Plot the image and the anchor boxes with the positive labels and their corresponding ground truth box
-
-        find_cor_bz = (flatten_gt == 1).nonzero()
-        find_neg_bz = (flatten_gt == -1).nonzero()
-
-        batch_size=len(boxes)
-        total_number_of_anchors=gt.shape[2]*gt.shape[3]
-        num_cor_bz = find_cor_bz.shape[0]
-        for i in range(batch_size):
-            image = transforms.functional.normalize(images[i],
-                                         [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
-                                         [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
-            fig, ax = plt.subplots(1, 1)
-            ax.imshow(image.permute(1, 2, 0))
-            mask = [torch.rand(num_cor_bz)>0.5 for x in range(2)]
-            mask1 = (find_cor_bz>i*total_number_of_anchors).flatten()
-            mask2 = (find_cor_bz<(i+1)*total_number_of_anchors).flatten()
-            mask[0]=mask1
-            mask[1]=mask2
-            mask=(torch.sum(torch.stack(mask),dim=0) == 2)
-            find_cor = find_cor_bz[mask]
-            for elem in find_cor:
-                coord = decoded_coord[elem, :].view(-1)
-                anchor = flatten_anchors[elem, :].view(-1)
-                col = 'r'
-                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
-                                         color=col)
-
-                ax.add_patch(rect)
-                rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
-                                         fill=False, color='b')
-                ax.add_patch(rect)
-
-            plt.savefig("./grndbox/visualtrainset_{}_{}_.png".format(idx, i))
-            plt.show()
+        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, result_dir)
 
         if (idx > 5):
             break
