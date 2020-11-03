@@ -4,6 +4,7 @@ from torchvision import transforms
 import torchvision.transforms.functional
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
+# from rpn import RPNHead
 import numpy as np
 from utils import *
 import matplotlib.pyplot as plt
@@ -400,8 +401,7 @@ def plot_visual_correctness_batch(img, label, boxes, mask, indexes, visual_dir, 
 
         plt.savefig("{}/{}.png".format(visual_dir, indexes[i]))
         plt.show()
-
-
+        plt.close('all')
 
 
 
@@ -462,6 +462,6 @@ if __name__ == '__main__':
         mask = batch['masks']
         labels = batch['labels']
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
-        plot_visual_correctness_batch(images, labels, boxes, mask, indexes, visual_dir, rgb_color_list)
         plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, mask_dir, top_K=None, mode="groundtruth")
+        plot_visual_correctness_batch(images, labels, boxes, mask, indexes, visual_dir, rgb_color_list)
 
