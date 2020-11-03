@@ -4,6 +4,7 @@ from torchvision import transforms
 from torch import nn, Tensor
 from dataset import *
 from utils import *
+import matplotlib.patches as patches
 import os.path
 import shutil
 import torchvision
@@ -16,7 +17,7 @@ gc.enable()
 
 class RPNHead(torch.nn.Module):
 
-    def __init__(self,  device='cuda', anchors_param=dict(ratio=1.01,scale= 403, grid_size=(50, 68), stride=16)):
+    def __init__(self,  device=('cuda' if torch.cuda.is_available() else 'cpu'), anchors_param=dict(ratio=1.01,scale= 403, grid_size=(50, 68), stride=16)):
         # Initialize the backbone, intermediate layer clasifier and regressor heads of the RPN
         super(RPNHead,self).__init__()
 
@@ -233,24 +234,21 @@ class RPNHead(torch.nn.Module):
         positive_inbound_anchor_list.append(iou_high_mask)
         
       iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
-      # positive_mask = torch.tensor([any(tup) for tup in list(zip(*positive_inbound_anchor_list))], device=self.device)
       positive_mask = torch.sum(torch.stack(positive_inbound_anchor_list), dim=0) != 0
       temp=torch.squeeze(positive_mask.nonzero(), dim=1)
       positive_idx=(anchor_inbound[temp,0:2].float()/stride-0.5).long()
       positive_idx=torch.index_select(positive_idx, 1, torch.tensor([1,0], dtype=torch.long, device=self.device))
-      # print(positive_idx)
-      # negative_mask = torch.tensor([all(tup) for tup in list(zip(*negative_inbound_anchor_list))], device=self.device)
+
       negative_mask = torch.sum(torch.stack(negative_inbound_anchor_list), dim=0) != 0
       temp1=torch.squeeze(negative_mask.nonzero(), dim=1)
       negative_idx=(anchor_inbound[temp1,0:2].float()/stride-0.5).long()     
       negative_idx=torch.index_select(negative_idx, 1, torch.tensor([1,0], dtype=torch.long, device=self.device))
-      # print(negative_idx.shape)
+
       highest_iou_mask,highest_iou_bbox_idx=torch.max(iou_inbound_anchor, 0)     
       labels[negative_idx[:,0],negative_idx[:,1]]=0
       labels[positive_idx[:,0],positive_idx[:,1]]=1
       ground_coord_orig=anchors.permute((2,0,1))
-#      ground_coord=ground_coord_orig
-     
+
       highest_bbox_idx=highest_iou_bbox_idx[positive_mask]
       bbox_positive=bboxes[highest_bbox_idx]
       bbox_x=bbox_positive[:,0].float()
@@ -392,13 +390,50 @@ class RPNHead(torch.nn.Module):
     # Output:
     #       nms_clas_list: list:len(bz){(Post_NMS_boxes)} (the score of the boxes that the NMS kept)
     #       nms_prebox_list: list:len(bz){(Post_NMS_boxes,4)} (the coordinates of the boxes that the NMS kept)
-    def postprocess(self,out_c,out_r, IOU_thresh=0.5, keep_num_preNMS=50, keep_num_postNMS=10):
+
+    def postprocess(self,out_c,out_r, batch_image, iter_id, IOU_thresh=0.5, keep_num_preNMS=50, keep_num_postNMS=10 ):
        ####################################
        # TODO postprocess a batch of images
        #####################################
-#        return nms_clas_list, nms_prebox_list
-       pass
+       batch_size = out_c.shape[0]
+       nms_clas_list=[]
+       nms_prebox_list=[]
+       for bz in range(batch_size):
+           nms_clas, nms_prebox = self.postprocessImg(out_c[bz], out_r[bz], batch_image[bz], iter_id, bz, IOU_thresh, keep_num_preNMS, keep_num_postNMS)
+           nms_clas_list.append(nms_clas)
+           nms_prebox_list.append(nms_prebox)
 
+       return nms_clas_list, nms_prebox_list
+
+
+    # Input:
+    #       flatten_cls: (Pre/Post_NMS_boxes)
+    #       flatten_box: (Pre/Post_NMS_boxes,4) (upper_left_x,upper_left_y, lower_right_x, lower_right_y)
+
+    def plot_imgae_NMS(self,flatten_box, image, iter_id, batch_id, mode, top_num):
+        ####################################
+        # TODO plot image before and after NMS
+        #####################################
+        image = transforms.functional.normalize(image,
+                                                [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+                                                [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
+        num_box=flatten_box.shape[0]
+        fig, ax = plt.subplots(1, 1)
+        image_vis = image.permute(1, 2, 0).cpu().detach().numpy()
+        ax.imshow(image_vis)
+
+        for elem in range(num_box):
+            coord = flatten_box[elem, :].view(-1)
+            coord = coord.cpu().detach().numpy()
+            # plot bbox
+            rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                     color='b')
+            ax.add_patch(rect)
+
+        plt.title("{} NMS Top {}".format(mode, top_num))
+        plt.savefig("NMS_result/{}NMS_batch_{}_img_{}.png".format(mode,iter_id, batch_id))
+        plt.show()
+        plt.close('all')
 
     # Post process the output for one image
     # Input:
@@ -407,14 +442,46 @@ class RPNHead(torch.nn.Module):
     # Output:
     #       nms_clas: (Post_NMS_boxes)
     #       nms_prebox: (Post_NMS_boxes,4) (decoded coordinates of the boxes that the NMS kept)
-    def postprocessImg(self,mat_clas,mat_coord, IOU_thresh,keep_num_preNMS, keep_num_postNMS):
+
+
+    def postprocessImg(self,mat_clas,mat_coord, image, iter_id, batch_id, IOU_thresh,keep_num_preNMS, keep_num_postNMS):
             ######################################
             # TODO postprocess a single image
             #####################################
+            reg_out = torch.unsqueeze(mat_coord, 0)
+            cls_out = torch.unsqueeze(mat_clas, 0)
+            flatten_coord, flatten_cls, flatten_anchors = output_flattening(reg_out, cls_out, self.anchors)
+            decoded_preNMS_flatten_box = output_decoding(flatten_coord, flatten_anchors)
+            a = [torch.rand(flatten_coord.shape[0]) > 0.5 for i in range(4)]
+            x_low_outbound = (decoded_preNMS_flatten_box[:, 0] < 0)
+            y_low_outbound = (decoded_preNMS_flatten_box[:, 1] < 0)
+            x_up_outbound = (decoded_preNMS_flatten_box[:, 2] > 1088)
+            y_up_outbound = (decoded_preNMS_flatten_box[:, 3] > 800)
+            a[0] = x_low_outbound
+            a[1] = y_low_outbound
+            a[2] = x_up_outbound
+            a[3] = y_up_outbound
+            outbound_flatten_mask = (torch.sum(torch.stack(a), dim=0) > 0)
+            flatten_cls[outbound_flatten_mask] = 0
 
-#            return nms_clas, nms_prebox
-            pass
+            top_values, top_indices = torch.topk(flatten_cls, keep_num_preNMS)
+            last_value = top_values[-1]
+            topk_mask = flatten_cls >= last_value
+            topk_cls = flatten_cls[topk_mask]
+            topk_box = decoded_preNMS_flatten_box[topk_mask]
+            self.plot_imgae_NMS(topk_box, image, iter_id, batch_id,"Pre", keep_num_preNMS)
 
+            nms_clas, nms_prebox = self.NMS(topk_cls,topk_box, IOU_thresh)
+
+            num = min(nms_prebox.shape[0],keep_num_postNMS)
+            top_values, top_indices = torch.topk(nms_clas, num)
+            last_value = top_values[-1]
+            topk_mask = nms_clas >= last_value
+            topn_cls = nms_clas[topk_mask]
+            topn_box = nms_prebox[topk_mask]
+            self.plot_imgae_NMS(topn_box, image, iter_id, batch_id, "Post", keep_num_postNMS)
+
+            return topn_cls, topn_box
 
 
     # Input:
@@ -423,12 +490,45 @@ class RPNHead(torch.nn.Module):
     # Output:
     #       nms_clas: (Post_NMS_boxes)
     #       nms_prebox: (Post_NMS_boxes,4)
+
     def NMS(self,clas,prebox, thresh):
         ##################################
         # TODO perform NSM
         ##################################
-#        return nms_clas,nms_prebox
-        pass
+        num_box = prebox.shape[0]
+
+        # IOU matrix
+        iou_mat = torch.zeros((num_box, num_box),device=self.device)
+        for x in range(num_box):
+            for y in range(num_box):
+                iou_mat[x, y] = IOU_edge_point(torch.unsqueeze(prebox[x, :], 0), torch.unsqueeze(prebox[y, :], 0))
+        max_index = set()
+
+        # Suppressing small IOU
+        for i in range(len(iou_mat)):
+            group = []
+            for j in range(len(iou_mat)):
+                if iou_mat[i, j] > thresh:
+                    group.append(j)
+            if len(group) == 1:
+                max_index.add(i)
+                continue
+            group_score = clas[group]
+            max_conf_bbox_group = torch.max(group_score)
+            index = (clas == max_conf_bbox_group).nonzero()
+            index = index.cpu().flatten().numpy().astype(int)
+            index_num = len(index)
+            if len(index) > 1: index = index[0]
+            index = int(index)
+            max_index.add(index)
+        all_index = list(range(len(iou_mat)))
+        all_index = [elem for elem in all_index if elem not in list(max_index)]
+        if len(all_index) == 0:
+            return prebox, clas
+        nms_clas = clas[list(max_index)]
+        nms_prebox = prebox[list(max_index), :]
+        return nms_clas, nms_prebox
+
 
 if __name__=="__main__":
     pass

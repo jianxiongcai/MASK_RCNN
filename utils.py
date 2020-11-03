@@ -27,6 +27,27 @@ def IOU(bbox_1 ,bbox_2):
       iou=(inter_area+ 1e-9)/(union_area+1e-9)
 
       return iou
+
+# This function calculate iou matrix of two sets of bboxes with expression of [x_upper_left,y_upper_left,x_lower_left,y_lower_left]
+# bbox:(num_box,4)
+def IOU_edge_point(bbox_1, bbox_2):
+    x_1a, y_1a, x_1b, y_1b = bbox_1[:, 0], bbox_1[:, 1], bbox_1[:, 2], bbox_1[:, 3]
+    x_2a, y_2a, x_2b, y_2b = bbox_2[:, 0], bbox_2[:, 1], bbox_2[:, 2], bbox_2[:, 3]
+
+    x_a = torch.max(x_1a, x_2a)
+    y_a = torch.max(y_1a, y_2a)
+
+    x_b = torch.min(x_1b, x_2b)
+    y_b = torch.min(y_1b, y_2b)
+
+    inter_area = (x_b - x_a).clamp(min=0) * (y_b - y_a).clamp(min=0)
+
+    area_box1 = (x_1b - x_1a).clamp(min=0) * (y_1b - y_1a).clamp(min=0)
+    area_box2 = (x_2b - x_2a).clamp(min=0) * (y_2b - y_2a).clamp(min=0)
+    union_area = area_box1 + area_box2 - inter_area
+    iou = (inter_area + 1e-3) / (union_area + 1e-3)
+
+    return iou
     
 # This function flattens the output of the network and the corresponding anchors 
 # in the sense that it concatenates  the outputs and the anchors from all the grid cells
@@ -59,7 +80,7 @@ def output_flattening(out_r,out_c,anchors):
     assert flatten_gt.shape==(bz*50*68,)
     assert flatten_anchors.shape==(bz*50*68,4)
     return flatten_coord, flatten_gt, flatten_anchors
-    
+
 
 # This function decodes the output that is given in the encoded format (defined in the handout)
 # into box coordinates where it returns the upper left and lower right corner of the proposed box
