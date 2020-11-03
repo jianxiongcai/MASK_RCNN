@@ -1,5 +1,5 @@
 import matplotlib
-# matplotlib.use('Agg')               # No display
+matplotlib.use('Agg')               # No display
 import matplotlib.pyplot as plt
 
 from dataset import BuildDataset, BuildDataLoader
@@ -15,18 +15,21 @@ import torch.optim as optim
 import numpy as np
 # import wandb
 from tqdm import tqdm
-os.makedirs("NMS_result", exist_ok=True)
 
 def do_eval(dataloader, checkpoint_file, device, result_dir=None):
     if result_dir is not None:
         os.makedirs(result_dir, exist_ok=True)
     # ============================ Eval ================================
     rpn_head = RPNHead(device=device).to(device)
+    # checkpoint = torch.load(checkpoint_file, map_location='cpu')
     checkpoint = torch.load(checkpoint_file, map_location='cpu')
     print("[INFO] Weight loaded from checkpoint file: {}".format(checkpoint_file))
     rpn_head.load_state_dict(checkpoint['model_state_dict'])
     rpn_head.eval()  # set to eval mode
     tracker = AccuracyTracker()
+
+    os.makedirs("PreNMS", exist_ok=True)
+    os.makedirs("PostNMS", exist_ok=True)
 
     for iter, data in enumerate(tqdm(dataloader), 0):
         img = data['images'].to(device)
@@ -42,11 +45,8 @@ def do_eval(dataloader, checkpoint_file, device, result_dir=None):
             tracker.onNewBatch(cls_out, targ_cls)
             # visualization
             if result_dir is not None:
-                # plot_mask_batch(rpn_head, cls_out, reg_out, img, bbox_list, index_list, result_dir, top_K=20, mode="preNMS")
-                nms_clas_list, nms_prebox_list = rpn_head.postprocess(cls_out, reg_out, img, iter, IOU_thresh=0.5, keep_num_preNMS=20, keep_num_postNMS=5)
-
-        if iter > 1:
-            break
+                plot_mask_batch(rpn_head, cls_out, reg_out, img, bbox_list, index_list, result_dir, top_K=20, mode="preNMS")
+                nms_clas_list, nms_prebox_list = rpn_head.postprocess(cls_out, reg_out, img, index_list, IOU_thresh=0.5, keep_num_preNMS=20, keep_num_postNMS=5)
 
 
     print("tracker.TP_pos: {}".format(tracker.TP_pos))
@@ -58,8 +58,7 @@ def do_eval(dataloader, checkpoint_file, device, result_dir=None):
 if __name__ == '__main__':
     #reproductivity
     torch.random.manual_seed(1)
-    # torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     np.random.seed(0)
 

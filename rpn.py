@@ -391,7 +391,7 @@ class RPNHead(torch.nn.Module):
     #       nms_clas_list: list:len(bz){(Post_NMS_boxes)} (the score of the boxes that the NMS kept)
     #       nms_prebox_list: list:len(bz){(Post_NMS_boxes,4)} (the coordinates of the boxes that the NMS kept)
 
-    def postprocess(self,out_c,out_r, batch_image, iter_id, IOU_thresh=0.5, keep_num_preNMS=50, keep_num_postNMS=10 ):
+    def postprocess(self,out_c,out_r, batch_image, indexes, IOU_thresh=0.5, keep_num_preNMS=50, keep_num_postNMS=10 ):
        ####################################
        # TODO postprocess a batch of images
        #####################################
@@ -399,7 +399,7 @@ class RPNHead(torch.nn.Module):
        nms_clas_list=[]
        nms_prebox_list=[]
        for bz in range(batch_size):
-           nms_clas, nms_prebox = self.postprocessImg(out_c[bz], out_r[bz], batch_image[bz], iter_id, bz, IOU_thresh, keep_num_preNMS, keep_num_postNMS)
+           nms_clas, nms_prebox = self.postprocessImg(out_c[bz], out_r[bz], batch_image[bz], indexes[bz], IOU_thresh, keep_num_preNMS, keep_num_postNMS)
            nms_clas_list.append(nms_clas)
            nms_prebox_list.append(nms_prebox)
 
@@ -410,7 +410,7 @@ class RPNHead(torch.nn.Module):
     #       flatten_cls: (Pre/Post_NMS_boxes)
     #       flatten_box: (Pre/Post_NMS_boxes,4) (upper_left_x,upper_left_y, lower_right_x, lower_right_y)
 
-    def plot_imgae_NMS(self,flatten_box, image, iter_id, batch_id, mode, top_num):
+    def plot_imgae_NMS(self,flatten_box, image, visual_dir, index, mode, top_num):
         ####################################
         # TODO plot image before and after NMS
         #####################################
@@ -431,7 +431,7 @@ class RPNHead(torch.nn.Module):
             ax.add_patch(rect)
 
         plt.title("{} NMS Top {}".format(mode, top_num))
-        plt.savefig("NMS_result/{}NMS_batch_{}_img_{}.png".format(mode,iter_id, batch_id))
+        plt.savefig("{}/{}.png".format(visual_dir, index))
         plt.show()
         plt.close('all')
 
@@ -444,7 +444,7 @@ class RPNHead(torch.nn.Module):
     #       nms_prebox: (Post_NMS_boxes,4) (decoded coordinates of the boxes that the NMS kept)
 
 
-    def postprocessImg(self,mat_clas,mat_coord, image, iter_id, batch_id, IOU_thresh,keep_num_preNMS, keep_num_postNMS):
+    def postprocessImg(self,mat_clas,mat_coord, image, index, IOU_thresh,keep_num_preNMS, keep_num_postNMS):
             ######################################
             # TODO postprocess a single image
             #####################################
@@ -469,7 +469,8 @@ class RPNHead(torch.nn.Module):
             topk_mask = flatten_cls >= last_value
             topk_cls = flatten_cls[topk_mask]
             topk_box = decoded_preNMS_flatten_box[topk_mask]
-            self.plot_imgae_NMS(topk_box, image, iter_id, batch_id,"Pre", keep_num_preNMS)
+            pre_nms_dir = "PreNMS"
+            self.plot_imgae_NMS(topk_box, image, pre_nms_dir,index, "Pre", keep_num_preNMS)
 
             nms_clas, nms_prebox = self.NMS(topk_cls,topk_box, IOU_thresh)
 
@@ -479,7 +480,8 @@ class RPNHead(torch.nn.Module):
             topk_mask = nms_clas >= last_value
             topn_cls = nms_clas[topk_mask]
             topn_box = nms_prebox[topk_mask]
-            self.plot_imgae_NMS(topn_box, image, iter_id, batch_id, "Post", keep_num_postNMS)
+            post_nms_dir = "PostNMS"
+            self.plot_imgae_NMS(topn_box, image, post_nms_dir,index, "Post", keep_num_postNMS)
 
             return topn_cls, topn_box
 

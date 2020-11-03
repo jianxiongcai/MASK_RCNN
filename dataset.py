@@ -1,5 +1,4 @@
 import h5py
-
 import torch
 from torchvision import transforms
 import torchvision.transforms.functional
@@ -9,9 +8,12 @@ import numpy as np
 from utils import *
 import matplotlib.pyplot as plt
 from rpn import *
+import matplotlib.cm as cm
 import matplotlib.patches as patches
 import os
 from tqdm import tqdm
+import matplotlib
+matplotlib.use('Agg')
 
 
 class BuildDataset(torch.utils.data.Dataset):
@@ -189,6 +191,21 @@ class BuildDataset(torch.utils.data.Dataset):
                                                           std=[1.0, 1.0, 1.0])
         return img
 
+    @staticmethod
+    def unnormalize_bbox(bbox):
+        """
+        Unnormalize one bbox annotation. from 0-1 => 0 - 1088
+        x_res = x * 1066 + 11
+        y_res = x * 800
+        :param bbox: the normalized bounding box (4,)
+        :return: the absolute bounding box location (4,)
+        """
+        bbox_res = torch.tensor(bbox, dtype=torch.float).clone().detach()
+        bbox_res[0] = bbox[0] * 1066 + 11
+        bbox_res[1] = bbox[1] * 800
+        bbox_res[2] = bbox[2] * 1066 + 11
+        bbox_res[3] = bbox[3] * 800
+        return bbox_res
 
 class BuildDataLoader(torch.utils.data.DataLoader):
     def __init__(self, dataset, batch_size, shuffle, num_workers):
@@ -232,7 +249,6 @@ class BuildDataLoader(torch.utils.data.DataLoader):
                           num_workers=self.num_workers,
                           collate_fn=self.collect_fn)
 
-
 def keep_top_K_batch(cls_out, top_K):
     """
     Keep the top K bounding box for each image, set others to 0
@@ -258,7 +274,6 @@ def keep_top_K_batch(cls_out, top_K):
         if torch.count_nonzero(out_res[i]) != top_K:
             print("[WARN] top_K keeping {} values".format(torch.count_nonzero(out_res[i])))
     return out_res
-
 
 def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result_dir, top_K, mode):
     """
@@ -350,6 +365,45 @@ def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result
         plt.show()
         plt.close('all')
 
+def plot_visual_correctness_batch(img, label, boxes, mask, indexes, visual_dir, rgb_color_list):
+    batch_size = len(indexes)
+    for i in range(batch_size):
+        ## TODO: plot images with annotations
+        fig, ax = plt.subplots(1)
+        # the input image: to (800, 1088, 3)
+        alpha = 0.15
+        # img_vis = alpha * BuildDataset.unnormalize_img(img[i])
+        img_vis = img[i]
+        img_vis = img_vis.permute((1, 2, 0)).cpu().numpy()
+
+        # object mask: assign color with class label
+        for obj_i, obj_mask in enumerate(mask[i], 0):
+            obj_label = label[i][obj_i]
+
+            rgb_color = rgb_color_list[obj_label - 1]
+            # (800, 1088, 3)
+            obj_mask_np = np.stack([obj_mask.cpu().numpy(), obj_mask.cpu().numpy(), obj_mask.cpu().numpy()], axis=2)
+            # alpha-blend mask
+            img_vis[obj_mask_np != 0] = ((1 - alpha) * rgb_color + alpha * img_vis)[obj_mask_np != 0]
+
+        # overlapping objects
+        img_vis = np.clip(img_vis, 0, 1)
+        ax.imshow(img_vis)
+
+        # bounding box
+        for obj_i, obj_bbox in enumerate(boxes[i], 0):
+            obj_w = obj_bbox[2]
+            obj_h = obj_bbox[3]
+            rect = patches.Rectangle((obj_bbox[0] - obj_bbox[2] / 2, obj_bbox[1] - obj_bbox[3] / 2), obj_w, obj_h, linewidth=1, edgecolor='r',
+                                     facecolor='none')
+            ax.add_patch(rect)
+
+        plt.savefig("{}/{}.png".format(visual_dir, indexes[i]))
+        plt.show()
+
+
+
+
 
 if __name__ == '__main__':
     # file path and make a list
@@ -358,8 +412,13 @@ if __name__ == '__main__':
     labels_path = 'data/hw3_mycocodata_labels_comp_zlib.npy'
     bboxes_path = 'data/hw3_mycocodata_bboxes_comp_zlib.npy'
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
-    result_dir = "grndbox"
-    os.makedirs(result_dir, exist_ok=True)
+
+    os.makedirs(visual_dir, exist_ok=True)
+    os.makedirs(mask_dir, exist_ok=True)
+    visual_dir = "visual_image"
+    mask_dir = "grndbox"
+
+
     # load the data into data.Dataset
     torch.random.manual_seed(1)
     torch.backends.cudnn.deterministic = True
@@ -386,13 +445,21 @@ if __name__ == '__main__':
     test_build_loader = BuildDataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
     test_loader = test_build_loader.loader()
 
+    mask_color_list = ["jet", "ocean", "Spectral", "spring", "cool"]
+    # convert to rgb color list
+    rgb_color_list = []
+    for color_str in mask_color_list:
+        color_map = cm.ScalarMappable(cmap=color_str)
+        rgb_value = np.array(color_map.to_rgba(0))[:3]
+        rgb_color_list.append(rgb_value)
+
 
     for idx, batch in enumerate(tqdm(train_loader), 0):
         images = batch['images'][:, :, :, :]
         indexes = batch['index']
         boxes = batch['bbox']
+        mask = batch['masks']
+        labels = batch['labels']
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
-        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, result_dir, top_K=None, mode="groundtruth")
-
-        if (idx > 5):
-            break
+        plot_visual_correctness_batch(images, labels, boxes, mask, indexes, visual_dir, rgb_color_list)
+        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, mask_dir, top_K=None, mode="groundtruth")
