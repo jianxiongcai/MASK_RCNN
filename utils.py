@@ -89,11 +89,12 @@ def output_flattening(out_r,out_c,anchors):
 #       flatten_anchors: (total_number_of_anchors*bz,4)
 # Output:
 #       box: (total_number_of_anchors*bz,4)
-def output_decoding(flatten_out,flatten_anchors, device='cpu'):
+def output_decoding(flatten_out,flatten_anchors_raw, device='cpu'):
     #######################################
     # TODO decode the output
     #######################################
     x=flatten_out.shape[0]
+    flatten_anchors = flatten_anchors_raw.float()
     x_c=flatten_out[:,0]*flatten_anchors[:,2]+flatten_anchors[:,0]
     y_c=flatten_out[:,1]*flatten_anchors[:,3]+flatten_anchors[:,1]
     w=torch.exp(flatten_out[:,2]+torch.log(flatten_anchors[:,2].float()))

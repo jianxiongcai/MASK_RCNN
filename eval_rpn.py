@@ -21,8 +21,7 @@ def do_eval(dataloader, checkpoint_file, device, result_dir=None):
         os.makedirs(result_dir, exist_ok=True)
     # ============================ Eval ================================
     rpn_head = RPNHead(device=device).to(device)
-    # checkpoint = torch.load(checkpoint_file, map_location='cpu')
-    checkpoint = torch.load(checkpoint_file, map_location='cpu')
+    checkpoint = torch.load(checkpoint_file)
     print("[INFO] Weight loaded from checkpoint file: {}".format(checkpoint_file))
     rpn_head.load_state_dict(checkpoint['model_state_dict'])
     rpn_head.eval()  # set to eval mode
@@ -59,12 +58,13 @@ if __name__ == '__main__':
     #reproductivity
     torch.random.manual_seed(1)
     torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.deterministic = False
     torch.backends.cudnn.benchmark = False
     np.random.seed(0)
 
     # =========================== Config ==========================
     batch_size = 2
-    checkpoint_file = "checkpoints_1/epoch_{}".format(69)
+    checkpoint_file = "checkpoints_final/epoch_{}".format(30)
     assert os.path.isfile(checkpoint_file)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 

@@ -12,3 +12,8 @@ data/
 wandb/
 checkpoints/
 checkpoints_3/
+checkpoints_final/
+
+PostNMS/
+PreNMS
+Top_20_proposals/

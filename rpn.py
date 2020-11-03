@@ -230,7 +230,7 @@ class RPNHead(torch.nn.Module):
         max_iou=torch.max(iou)
         max_iou_idx=(iou>0.99*max_iou).nonzero()
 #        max_iou_idx=torch.argmax(iou)
-        iou_high_mask[max_iou_idx]=True
+        iou_high_mask[max_iou_idx]=1
         positive_inbound_anchor_list.append(iou_high_mask)
         
       iou_inbound_anchor=torch.stack(iou_inbound_anchor_list)
@@ -414,7 +414,7 @@ class RPNHead(torch.nn.Module):
         ####################################
         # TODO plot image before and after NMS
         #####################################
-        image = transforms.functional.normalize(image,
+        image = transforms.functional.normalize(image.cpu().detach(),
                                                 [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
                                                 [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
         num_box=flatten_box.shape[0]
