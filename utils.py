@@ -28,7 +28,7 @@ def IOU(bbox_1 ,bbox_2):
 
       return iou
 
-# This function calculate iou matrix of two sets of bboxes with expression of [x_upper_left,y_upper_left,x_lower_left,y_lower_left]
+# This function calculate iou matrix of two sets of bboxes with expression of [x_upper_left,y_upper_left,x_lower_right,y_lower_right]
 # bbox:(num_box,4)
 def IOU_edge_point(bbox_1, bbox_2):
     x_1a, y_1a, x_1b, y_1b = bbox_1[:, 0], bbox_1[:, 1], bbox_1[:, 2], bbox_1[:, 3]
