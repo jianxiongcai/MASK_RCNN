@@ -12,3 +12,4 @@ data/
 wandb/
 checkpoints/
 checkpoints_3/
+checkpoints_final/

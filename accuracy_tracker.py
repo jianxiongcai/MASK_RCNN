@@ -26,7 +26,7 @@ class AccuracyTracker():
         cls_out_bin = (cls_out > 0.5) * 1.0
         # only count positive and negative, target_out only contains -1, 0, 1
         gt_mask = target_out != -1
-        result = cls_out_bin[gt_mask] == target_out[gt_mask]        # torch.tensor dtype=torch.bool
+        result = (cls_out_bin[gt_mask].float() == target_out[gt_mask].float())        # torch.tensor dtype=torch.bool
         assert result.dim() == 1
         num_TP = torch.sum(result).item()
         self.num_TP = self.num_TP + num_TP
