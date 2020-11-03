@@ -271,8 +271,8 @@ def keep_top_K_batch(cls_out, top_K):
         last_value = top_values[-1]
         mask = cls_out[i] >= last_value
         out_res[i, mask] = cls_out[i, mask]
-        if torch.count_nonzero(out_res[i]) != top_K:
-            print("[WARN] top_K keeping {} values".format(torch.count_nonzero(out_res[i])))
+        # if torch.count_nonzero(out_res[i]) != top_K:
+        #     print("[WARN] top_K keeping {} values".format(torch.count_nonzero(out_res[i])))
     return out_res
 
 def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result_dir, top_K, mode):
@@ -322,7 +322,7 @@ def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result
     batch_size = len(boxes)
     total_number_of_anchors = cls_out.shape[2] * cls_out.shape[3]
     for i in range(batch_size):
-        image = transforms.functional.normalize(images[i],
+        image = transforms.functional.normalize(images[i].cpu().detach(),
                                                 [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
                                                 [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
         fig, ax = plt.subplots(1, 1)
@@ -332,7 +332,9 @@ def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result
 
         mask1 = (find_cor_bz > i * total_number_of_anchors).flatten()
         mask2 = (find_cor_bz < (i + 1) * total_number_of_anchors).flatten()
-        mask = torch.logical_and(mask1, mask2)
+        # logical_and (1.1.0 does not have logical_and...)
+        # mask = torch.logical_and(mask1, mask2)
+        mask = (mask1 + mask2) == 2
         find_cor = find_cor_bz[mask]
 
         # # only keep top_K for at inference stage

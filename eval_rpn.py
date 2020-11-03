@@ -64,7 +64,7 @@ if __name__ == '__main__':
 
     # =========================== Config ==========================
     batch_size = 2
-    checkpoint_file = "checkpoints_final/epoch_{}".format(75)
+    checkpoint_file = "checkpoints_final/epoch_{}".format(30)
     assert os.path.isfile(checkpoint_file)
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 

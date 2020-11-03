@@ -414,7 +414,7 @@ class RPNHead(torch.nn.Module):
         ####################################
         # TODO plot image before and after NMS
         #####################################
-        image = transforms.functional.normalize(image,
+        image = transforms.functional.normalize(image.cpu().detach(),
                                                 [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
                                                 [1 / 0.229, 1 / 0.224, 1 / 0.225], inplace=False)
         num_box=flatten_box.shape[0]
