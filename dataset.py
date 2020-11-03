@@ -233,17 +233,56 @@ class BuildDataLoader(torch.utils.data.DataLoader):
                           collate_fn=self.collect_fn)
 
 
-def plot_mask_batch(rpn_net, cls_out, reg_out, images, boxes, indice, result_dir, top_K = None):
+def keep_top_K_batch(cls_out, top_K):
+    """
+    Keep the top K bounding box for each image, set others to 0
+    :param cls_out: (bz, 1, H, W)
+    :return:
+        cls_out: (bz, 1, H, W). All non-keeping ones are set to 0
+        top_K:
+    Examples:
+        Input: cls_out=[[0.9, 0.3], [0.6, 0.1]]
+        Input: top_K=2
+        output=[[0.9, 0.0], [0.6, 0.0]]
+
+    """
+    out_res = torch.zeros_like(cls_out)
+    for i in range(cls_out.shape[0]):
+        # get the 20th top value
+        tmp = torch.flatten(cls_out[i])
+        top_values, _ = torch.topk(tmp, top_K)
+        # only keep classification score > last value
+        last_value = top_values[-1]
+        mask = cls_out[i] >= last_value
+        out_res[i, mask] = cls_out[i, mask]
+        if torch.count_nonzero(out_res[i]) != top_K:
+            print("[WARN] top_K keeping {} values".format(torch.count_nonzero(out_res[i])))
+    return out_res
+
+
+def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result_dir, top_K, mode):
     """
 
     :param rpn_net:
-    :param cls_out: the classification output (/gt)
+    :param cls_out_raw: the classification output (/gt)
     :param reg_out: the regression output (/ground_coord)
     :param boxes: input bounding boxes
     :param images: input images
-    :param top_K: if None, use (flatten_cls == 1) as the conditional for visualization
+    :param indice: unique index from dataloader
+    :param result_dir: the result directory to save figures
+    :param top_K: if not None, only plot the top K bounding box
+    :param mode:
+        If "groundtruth", plot the ground-truth bbox and its anchors.
+        If "preNMS", select and plot top-K the inferred bounding box
+        If "postNMS", plot all inferred boundind box with prob > 0
     :return:
     """
+    # do filtering if needed
+    if top_K is None:
+        cls_out = cls_out_raw
+    else:
+        cls_out = keep_top_K_batch(cls_out_raw, top_K=top_K)
+
     # Flatten the ground truth and the anchors
     flatten_coord, flatten_cls, flatten_anchors = output_flattening(reg_out, cls_out, rpn_net.get_anchors())
 
@@ -251,11 +290,17 @@ def plot_mask_batch(rpn_net, cls_out, reg_out, images, boxes, indice, result_dir
     decoded_coord = output_decoding(flatten_coord, flatten_anchors)
 
     # Plot the image and the anchor boxes with the positive labels and their corresponding ground truth box
-    if top_K is None:
+    # decision threshold depend on mode
+    if mode == "groundtruth":
         find_cor_bz = (flatten_cls == 1).nonzero()
+    elif mode == "preNMS":
+        # only keep top X, so everything non zero is positive
+        find_cor_bz = flatten_cls.nonzero()
+    elif mode == "postNMS":
+        # only keep top X, so everything non zero is positive
+        find_cor_bz = flatten_cls.nonzero()
     else:
-        # only keep top K (here we get all positive bboxes)
-        find_cor_bz = (flatten_cls > 0.5).nonzero()
+        raise RuntimeError("[ERROR] mode not recognizable: {}".format(mode))
     find_cor_bz = find_cor_bz.squeeze(dim=1)
 
 
@@ -275,25 +320,31 @@ def plot_mask_batch(rpn_net, cls_out, reg_out, images, boxes, indice, result_dir
         mask = torch.logical_and(mask1, mask2)
         find_cor = find_cor_bz[mask]
 
-        # only keep top_K for at inference stage
-        if (top_K is not None) and (top_K < len(find_cor)):
-            scores = flatten_cls[find_cor]
-            _, keep_indice = torch.topk(scores, top_K)
-            find_cor = find_cor[keep_indice]
+        # # only keep top_K for at inference stage
+        # if (top_K is not None) and (top_K < len(find_cor)):
+        #     scores = flatten_cls[find_cor]
+        #     _, keep_indice = torch.topk(scores, top_K)
+        #     find_cor = find_cor[keep_indice]
 
         for elem in find_cor:
             coord = decoded_coord[elem, :].view(-1)
             anchor = flatten_anchors[elem, :].view(-1)
             coord = coord.cpu().detach().numpy()
             anchor = anchor.cpu().detach().numpy()
-            col = 'r'
-            rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
-                                     color=col)
-
-            ax.add_patch(rect)
-            rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
-                                     fill=False, color='b')
-            ax.add_patch(rect)
+            if mode == "groundtruth":
+                # plot bbox
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                         color='r')
+                ax.add_patch(rect)
+                # plot positive anchor
+                rect = patches.Rectangle((anchor[0] - anchor[2] / 2, anchor[1] - anchor[3] / 2), anchor[2], anchor[3],
+                                         fill=False, color='b')
+                ax.add_patch(rect)
+            else:
+                # plot bbox
+                rect = patches.Rectangle((coord[0], coord[1]), coord[2] - coord[0], coord[3] - coord[1], fill=False,
+                                         color='b')
+                ax.add_patch(rect)
 
         plt.savefig("{}/{}.png".format(result_dir, indice[i]))
         plt.show()
@@ -341,7 +392,7 @@ if __name__ == '__main__':
         indexes = batch['index']
         boxes = batch['bbox']
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
-        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, result_dir)
+        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, result_dir, top_K=None, mode="groundtruth")
 
         if (idx > 5):
             break

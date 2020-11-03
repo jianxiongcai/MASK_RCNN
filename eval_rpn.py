@@ -39,7 +39,7 @@ def do_eval(dataloader, checkpoint_file, device, result_dir=None):
             tracker.onNewBatch(cls_out, targ_cls)
             # visualization
             if result_dir is not None:
-                plot_mask_batch(rpn_head, cls_out, reg_out, img, bbox_list, index_list, result_dir, top_K=20)
+                plot_mask_batch(rpn_head, cls_out, reg_out, img, bbox_list, index_list, result_dir, top_K=20, mode="preNMS")
 
 
     print("tracker.TP_pos: {}".format(tracker.TP_pos))
@@ -56,7 +56,7 @@ np.random.seed(0)
 
 # =========================== Config ==========================
 batch_size = 8
-checkpoint_file = "checkpoints/epoch_{}".format(69)
+checkpoint_file = "checkpoints_1/epoch_{}".format(69)
 assert os.path.isfile(checkpoint_file)
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
