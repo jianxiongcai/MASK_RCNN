@@ -331,11 +331,11 @@ def plot_mask_batch(rpn_net, cls_out_raw, reg_out, images, boxes, indice, result
         ax.imshow(image_vis)
         # mask = [torch.rand(num_cor_bz)>0.5 for x in range(2)]
 
-        mask1 = (find_cor_bz > i * total_number_of_anchors).flatten()
-        mask2 = (find_cor_bz < (i + 1) * total_number_of_anchors).flatten()
+        mask1 = (find_cor_bz > i * total_number_of_anchors).flatten() * 1.0
+        mask2 = (find_cor_bz < (i + 1) * total_number_of_anchors).flatten() * 1.0
         # logical_and (1.1.0 does not have logical_and...)
         # mask = torch.logical_and(mask1, mask2)
-        mask = (mask1 + mask2) == 2
+        mask = (mask1 + mask2) == 2.0
         find_cor = find_cor_bz[mask]
 
         # # only keep top_K for at inference stage
@@ -376,7 +376,7 @@ def plot_visual_correctness_batch(img, label, boxes, mask, indexes, visual_dir, 
         # the input image: to (800, 1088, 3)
         alpha = 0.15
         # img_vis = alpha * BuildDataset.unnormalize_img(img[i])
-        img_vis = img[i]
+        img_vis = img[i].clone()
         img_vis = img_vis.permute((1, 2, 0)).cpu().numpy()
 
         # object mask: assign color with class label
@@ -403,7 +403,6 @@ def plot_visual_correctness_batch(img, label, boxes, mask, indexes, visual_dir, 
 
         plt.savefig("{}/{}.png".format(visual_dir, indexes[i]))
         plt.show()
-        plt.close('all')
 
 
 
@@ -464,6 +463,10 @@ if __name__ == '__main__':
         mask = batch['masks']
         labels = batch['labels']
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
-        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, mask_dir, top_K=None, mode="groundtruth")
+
+
         plot_visual_correctness_batch(images, labels, boxes, mask, indexes, visual_dir, rgb_color_list)
+        plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, mask_dir, top_K=None, mode="groundtruth")
+
+
 
