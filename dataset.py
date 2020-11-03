@@ -413,10 +413,11 @@ if __name__ == '__main__':
     bboxes_path = 'data/hw3_mycocodata_bboxes_comp_zlib.npy'
     paths = [imgs_path, masks_path, labels_path, bboxes_path]
 
+    visual_dir = "Visual_image"
+    mask_dir = "Grndbox"
     os.makedirs(visual_dir, exist_ok=True)
     os.makedirs(mask_dir, exist_ok=True)
-    visual_dir = "visual_image"
-    mask_dir = "grndbox"
+
 
 
     # load the data into data.Dataset
@@ -463,3 +464,4 @@ if __name__ == '__main__':
         gt, ground_coord = rpn_net.create_batch_truth(boxes, indexes, images.shape[-2:])
         plot_visual_correctness_batch(images, labels, boxes, mask, indexes, visual_dir, rgb_color_list)
         plot_mask_batch(rpn_net, gt, ground_coord, images, boxes, indexes, mask_dir, top_K=None, mode="groundtruth")
+
