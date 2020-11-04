@@ -504,28 +504,43 @@ class RPNHead(torch.nn.Module):
         for x in range(num_box):
             for y in range(num_box):
                 iou_mat[x, y] = IOU_edge_point(torch.unsqueeze(prebox[x, :], 0), torch.unsqueeze(prebox[y, :], 0))
-        max_index = set()
+        # max_index = set()
+        max_index = []
 
         # Suppressing small IOU
-        for i in range(len(iou_mat)):
-            group = []
-            for j in range(len(iou_mat)):
-                if iou_mat[i, j] > thresh:
-                    group.append(j)
-            if len(group) == 1:
-                max_index.add(i)
-                continue
-            group_score = clas[group]
-            max_conf_bbox_group = torch.max(group_score)
-            index = (clas == max_conf_bbox_group).nonzero()
-            index = index.cpu().flatten().numpy().astype(int)
-            index_num = len(index)
-            if len(index) > 1: index = index[0]
-            index = int(index)
-            max_index.add(index)
-        all_index = list(range(len(iou_mat)))
-        all_index = [elem for elem in all_index if elem not in list(max_index)]
-        if len(all_index) == 0:
+        for idx_curr in range(len(iou_mat)):    # w.r.t num_box
+            has_match = False
+            for idx_prev in len(max_index):     # w.r.t. max_index
+                # suppress bounding box when IOU > thres, only one lives
+                if iou_mat[idx_curr, idx_prev] > thresh:
+                    has_match = True
+                    if clas[idx_prev] > clas[idx_curr]:             # substitute
+                        max_index[idx_prev] = idx_curr
+            # all match done.
+            if not has_match:                                       # if no match, solo group
+                max_index.append(idx_curr)
+
+        # for i in range(len(iou_mat)):
+        #     group = []
+        #     for j in range(len(iou_mat)):
+        #         if iou_mat[i, j] > thresh:
+        #             group.append(j)
+        #     if len(group) == 1:
+        #         max_index.add(i)
+        #         continue
+        #     group_score = clas[group]
+        #     max_conf_bbox_group = torch.max(group_score)
+        #     index = (clas == max_conf_bbox_group).nonzero()
+        #     index = index.cpu().flatten().numpy().astype(int)
+        #     index_num = len(index)
+        #     if len(index) > 1: index = index[0]
+        #     index = int(index)
+        #     max_index.add(index)
+        # all_index = list(range(len(iou_mat)))
+        # all_index = [elem for elem in all_index if elem not in list(max_index)]
+        # if len(all_index) == 0:
+        #     return prebox, clas
+        if len(iou_mat) == len(max_index):      # quick return if keep everything
             return prebox, clas
         nms_clas = clas[list(max_index)]
         nms_prebox = prebox[list(max_index), :]
