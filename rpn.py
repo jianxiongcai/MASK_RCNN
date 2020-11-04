@@ -510,12 +510,12 @@ class RPNHead(torch.nn.Module):
         # Suppressing small IOU
         for idx_curr in range(len(iou_mat)):    # w.r.t num_box
             has_match = False
-            for idx_prev in len(max_index):     # w.r.t. max_index
+            for k, idx_prev in enumerate(max_index, 0):          # w.r.t. num_box
                 # suppress bounding box when IOU > thres, only one lives
                 if iou_mat[idx_curr, idx_prev] > thresh:
                     has_match = True
                     if clas[idx_prev] > clas[idx_curr]:             # substitute
-                        max_index[idx_prev] = idx_curr
+                        max_index[k] = idx_curr
             # all match done.
             if not has_match:                                       # if no match, solo group
                 max_index.append(idx_curr)
