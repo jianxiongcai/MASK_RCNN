@@ -23,6 +23,17 @@ Eval + Visualization (checkpoint loaded from dir 'checkpoints_final')
 python eval_rpn.py
 ```
 
+ground-truth + image visualization
+```bash
+python dataset.py
+```
+
+ratio and scale hisyogram
+```bash
+python dataset_hist.py
+```
+
+
 ## Runtime environment
 The network is trained locally with:
 - pytorch==1.1.0
