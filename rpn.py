@@ -504,42 +504,28 @@ class RPNHead(torch.nn.Module):
         for x in range(num_box):
             for y in range(num_box):
                 iou_mat[x, y] = IOU_edge_point(torch.unsqueeze(prebox[x, :], 0), torch.unsqueeze(prebox[y, :], 0))
-        # max_index = set()
-        max_index = []
+        max_index = set()
+        # max_index = []
 
         # Suppressing small IOU
         for idx_curr in range(len(iou_mat)):    # w.r.t num_box
-            has_match = False
-            for k, idx_prev in enumerate(max_index, 0):          # w.r.t. num_box
+            # find all boxes with max iou from result list
+            to_add = True
+            to_remove = []                      # index to remove from result after matching
+            for idx_prev in max_index:          # w.r.t. num_box
                 # suppress bounding box when IOU > thres, only one lives
                 if iou_mat[idx_curr, idx_prev] > thresh:
-                    has_match = True
-                    if clas[idx_curr] > clas[idx_prev]:             # substitute
-                        max_index[k] = idx_curr
-            # all match done.
-            if not has_match:                                       # if no match, solo group
-                max_index.append(idx_curr)
+                    if clas[idx_curr] > clas[idx_prev]:             # add to remove list
+                        to_remove.append(idx_prev)
+                    else:
+                        to_add = False                              # do not add if it's not the max one
 
-        # for i in range(len(iou_mat)):
-        #     group = []
-        #     for j in range(len(iou_mat)):
-        #         if iou_mat[i, j] > thresh:
-        #             group.append(j)
-        #     if len(group) == 1:
-        #         max_index.add(i)
-        #         continue
-        #     group_score = clas[group]
-        #     max_conf_bbox_group = torch.max(group_score)
-        #     index = (clas == max_conf_bbox_group).nonzero()
-        #     index = index.cpu().flatten().numpy().astype(int)
-        #     index_num = len(index)
-        #     if len(index) > 1: index = index[0]
-        #     index = int(index)
-        #     max_index.add(index)
-        # all_index = list(range(len(iou_mat)))
-        # all_index = [elem for elem in all_index if elem not in list(max_index)]
-        # if len(all_index) == 0:
-        #     return prebox, clas
+            # all match done.
+            for x in to_remove:                                     # do removal if any
+                max_index.remove(x)
+            if to_add:                                              # add if solo group / the global maxium
+                max_index.add(idx_curr)
+
         if len(iou_mat) == len(max_index):      # quick return if keep everything
             return prebox, clas
         nms_clas = clas[list(max_index)]
