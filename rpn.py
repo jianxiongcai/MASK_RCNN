@@ -514,7 +514,7 @@ class RPNHead(torch.nn.Module):
                 # suppress bounding box when IOU > thres, only one lives
                 if iou_mat[idx_curr, idx_prev] > thresh:
                     has_match = True
-                    if clas[idx_prev] > clas[idx_curr]:             # substitute
+                    if clas[idx_curr] > clas[idx_prev]:             # substitute
                         max_index[k] = idx_curr
             # all match done.
             if not has_match:                                       # if no match, solo group
